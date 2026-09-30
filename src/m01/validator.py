@@ -58,6 +58,7 @@ class ValidationReport:
 
 
 _INTERVAL_TABLES = ("lithology", "alteration", "assay", "density")
+_INITIAL_ORIENTATION_DIFFERENCE_THRESHOLD_DEG = 2.0
 _REQUIRED_FIELDS = {
     "collar": (
         "hole_id", "dataset_id", "project_id", "campaign_id", "x", "y", "z",
@@ -92,8 +93,9 @@ _FindingAdder = Callable[..., None]
 def validate_m01_data(data: M01Data) -> ValidationReport:
     """Apply documented M01 checks to loaded tables without changing them.
 
-    Numeric tolerances and engineering thresholds that have not been approved
-    are intentionally not applied.
+    The 2-degree initial-orientation comparison is a team assumption pending
+    teacher approval. Other numeric tolerances and thresholds are not applied
+    unless approved.
     """
     findings: list[ValidationFinding] = []
     tables = {
@@ -271,13 +273,13 @@ def validate_m01_data(data: M01Data) -> ValidationReport:
         if not any(_number(station.get("depth_m")) == 0 for _, station in stations):
             add(
                 "SURVEY-006",
-                "ERROR",
+                "WARNING",
                 "survey",
                 None,
                 collar,
                 "depth_m",
                 "NO_ZERO_DEPTH_STATION",
-                "each surveyed hole has an orientation station at depth_m = 0",
+                "no station at depth_m = 0; desurvey uses collar orientation as the provisional initial-direction fallback",
             )
 
         _check_survey_order(add, hole_id, stations)
@@ -432,17 +434,44 @@ def _check_duplicate_survey_stations(
     for depth, duplicates in by_depth.items():
         if len(duplicates) < 2:
             continue
-        orientations = {
-            (_number(record.get("azimuth_deg")), _number(record.get("dip_deg")))
-            for _, record in duplicates
-        }
-        severity: Severity = "ERROR" if len(orientations) > 1 else "WARNING"
-        expected = (
-            "one unambiguous orientation per hole_id and depth_m"
-            if severity == "ERROR"
-            else "review duplicate survey stations at the same hole_id and depth_m"
-        )
+        _, reference = duplicates[0]
+        reference_azimuth = _number(reference.get("azimuth_deg"))
+        reference_dip = _number(reference.get("dip_deg"))
         for row_number, record in duplicates[1:]:
+            azimuth = _number(record.get("azimuth_deg"))
+            dip = _number(record.get("dip_deg"))
+            if (
+                reference_azimuth is None
+                or reference_dip is None
+                or azimuth is None
+                or dip is None
+            ):
+                severity: Severity = "ERROR"
+                expected = (
+                    "duplicate survey orientations are finite and unambiguous; "
+                    "invalid values require review"
+                )
+            else:
+                azimuth_difference = _angular_difference_degrees(reference_azimuth, azimuth)
+                dip_difference = abs(reference_dip - dip)
+                severity = (
+                    "ERROR"
+                    if (
+                        azimuth_difference
+                        >= _INITIAL_ORIENTATION_DIFFERENCE_THRESHOLD_DEG
+                        or dip_difference
+                        >= _INITIAL_ORIENTATION_DIFFERENCE_THRESHOLD_DEG
+                    )
+                    else "WARNING"
+                )
+                expected = (
+                    "duplicate orientations differ by less than 2 degrees in both "
+                    "azimuth and dip; retain the first CSV station and ignore this "
+                    "redundant row"
+                    if severity == "WARNING"
+                    else "duplicate orientations differ by 2 degrees or more in "
+                    "azimuth or dip; resolve the contradictory station manually"
+                )
             add(
                 "SURVEY-008",
                 severity,
@@ -460,6 +489,10 @@ def _check_initial_orientation(
     collar: TableRecord,
     stations: list[tuple[int, TableRecord]],
 ) -> None:
+    """Compare collar and zero-depth survey angles using the provisional rule.
+
+    The 2-degree threshold is a team assumption pending teacher approval.
+    """
     zero_stations = [
         (row_number, station)
         for row_number, station in stations
@@ -472,17 +505,41 @@ def _check_initial_orientation(
     for field in ("azimuth_deg", "dip_deg"):
         collar_value = _number(collar.get(field))
         survey_value = _number(station.get(field))
-        if collar_value is not None and survey_value is not None and collar_value != survey_value:
+        if collar_value is None or survey_value is None:
+            continue
+
+        difference = (
+            _angular_difference_degrees(collar_value, survey_value)
+            if field == "azimuth_deg"
+            else abs(survey_value - collar_value)
+        )
+        if difference > 0:
+            severity: Severity = (
+                "INFO"
+                if difference < _INITIAL_ORIENTATION_DIFFERENCE_THRESHOLD_DEG
+                else "WARNING"
+            )
             add(
                 "SURVEY-009",
-                "WARNING",
+                severity,
                 "survey",
                 row_number,
                 station,
                 field,
-                survey_value,
-                f"review difference from collar.{field} at depth_m = 0; no tolerance is applied",
+                difference,
+                (
+                    f"angular difference from collar.{field} at depth_m = 0 is "
+                    f"{difference:g} degrees; team-assumed threshold is "
+                    f"{_INITIAL_ORIENTATION_DIFFERENCE_THRESHOLD_DEG:g} degrees "
+                    "(below threshold: INFO; at or above threshold: WARNING; "
+                    "assumption pending teacher approval)"
+                ),
             )
+
+
+def _angular_difference_degrees(first: float, second: float) -> float:
+    """Return the shortest unsigned angular distance for degree bearings."""
+    return abs((second - first + 180.0) % 360.0 - 180.0)
 
 
 def _check_survey_end_coverage(

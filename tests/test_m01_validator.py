@@ -208,9 +208,96 @@ class ValidateM01DataTests(unittest.TestCase):
         findings = validate_m01_data(self.data).findings
         finding = next(item for item in findings if item.rule_id == "SURVEY-006")
 
-        self.assertEqual(finding.severity, "ERROR")
+        self.assertEqual(finding.severity, "WARNING")
         self.assertEqual(finding.hole_id, "H-01")
         self.assertEqual(finding.observed_value, "NO_ZERO_DEPTH_STATION")
+
+    def test_reports_near_duplicate_survey_station_as_warning(self) -> None:
+        duplicate = self.data.survey.records[0].copy()
+        duplicate["azimuth_deg"] = 1.5
+        self.data.survey.records.append(duplicate)
+
+        report = validate_m01_data(self.data)
+        finding = next(
+            item for item in report.findings if item.rule_id == "SURVEY-008"
+        )
+
+        self.assertEqual(finding.severity, "WARNING")
+        self.assertEqual(finding.row_number, 4)
+        self.assertFalse(report.has_errors)
+
+    def test_reports_duplicate_survey_at_two_degrees_as_error(self) -> None:
+        duplicate = self.data.survey.records[0].copy()
+        duplicate["azimuth_deg"] = 2.0
+        self.data.survey.records.append(duplicate)
+
+        report = validate_m01_data(self.data)
+        finding = next(
+            item for item in report.findings if item.rule_id == "SURVEY-008"
+        )
+
+        self.assertEqual(finding.severity, "ERROR")
+        self.assertTrue(report.has_errors)
+
+    def test_duplicate_survey_azimuth_uses_circular_difference(self) -> None:
+        self.data.survey.records[0]["azimuth_deg"] = 359.0
+        duplicate = self.data.survey.records[0].copy()
+        duplicate["azimuth_deg"] = 1.0
+        self.data.survey.records.append(duplicate)
+
+        report = validate_m01_data(self.data)
+        finding = next(
+            item for item in report.findings if item.rule_id == "SURVEY-008"
+        )
+
+        self.assertEqual(finding.severity, "ERROR")
+
+    def test_initial_orientation_difference_below_two_degrees_is_info(self) -> None:
+        self.data.collar.records[0]["azimuth_deg"] = 10.0
+        self.data.survey.records[0]["azimuth_deg"] = 11.5
+
+        report = validate_m01_data(self.data)
+        finding = next(
+            item
+            for item in report.findings
+            if item.rule_id == "SURVEY-009" and item.field == "azimuth_deg"
+        )
+
+        self.assertEqual(finding.severity, "INFO")
+        self.assertEqual(finding.observed_value, 1.5)
+        self.assertFalse(finding.blocking)
+        self.assertEqual(report.error_count, 0)
+
+    def test_initial_orientation_difference_at_two_degrees_is_warning(self) -> None:
+        self.data.collar.records[0]["dip_deg"] = -90.0
+        self.data.survey.records[0]["dip_deg"] = -88.0
+
+        report = validate_m01_data(self.data)
+        finding = next(
+            item
+            for item in report.findings
+            if item.rule_id == "SURVEY-009" and item.field == "dip_deg"
+        )
+
+        self.assertEqual(finding.severity, "WARNING")
+        self.assertEqual(finding.observed_value, 2.0)
+        self.assertTrue(finding.requires_review)
+        self.assertFalse(finding.blocking)
+        self.assertEqual(report.error_count, 0)
+
+    def test_initial_azimuth_difference_uses_shortest_angular_distance(self) -> None:
+        self.data.collar.records[0]["azimuth_deg"] = 359.0
+        self.data.survey.records[0]["azimuth_deg"] = 1.0
+
+        report = validate_m01_data(self.data)
+        finding = next(
+            item
+            for item in report.findings
+            if item.rule_id == "SURVEY-009" and item.field == "azimuth_deg"
+        )
+
+        self.assertEqual(finding.severity, "WARNING")
+        self.assertEqual(finding.observed_value, 2.0)
 
     def test_reports_nested_overlapping_intervals(self) -> None:
         nested = self.data.assay.records[0].copy()

@@ -52,8 +52,8 @@ angular y los controles de cobertura para posicionamiento.
 |---|---|---|---|
 | Datos cargados | Tablas fuente necesarias para el flujo M01 | Según diccionario de datos | Entrega interna a los módulos |
 | `ValidationReport` | Hallazgos con regla, severidad, tabla, fila lógica, identificadores, campo, valor observado y condición esperada; incluye conteos por severidad | N/A | Entrega interna desde `validator.py` |
-| Trayectoria desurveyada | Coordenadas calculadas por sondaje y profundidad medida | Coordenadas/distancia en unidades documentadas; convención pendiente | `data/processed/` por definir |
-| Intervalos posicionados | Intervalos vinculados espacialmente con la trayectoria | Según datos fuente y representación acordada | `data/processed/` por definir |
+| Trayectoria desurveyada | Coordenadas calculadas por sondaje en MD 0 y estaciones observadas | XYZ locales y MD en m; CRS/EPSG UNKNOWN | Objeto interno `DesurveyResult`; exportación pendiente |
+| Intervalos posicionados | XYZ de FROM y TO sobre la trayectoria cubierta | XYZ locales y MD en m; CRS/EPSG UNKNOWN | Objeto interno `PositioningResult`; exportación pendiente |
 | Visualizaciones y exportaciones | Representaciones/archivos derivados que se acuerden | Depende del formato seleccionado | `outputs/` |
 
 ## 6. Convenciones y supuestos
@@ -68,9 +68,10 @@ docente, antes de programar desurvey:
 
 Estas convenciones definen ejes y ángulos, pero no el CRS/EPSG ni cómo
 consultar la trayectoria entre estaciones survey o fuera del rango cubierto.
-También queda pendiente decidir qué fuente gobierna la orientación inicial en
-MD = 0 cuando difieren collar.azimuth_deg/dip_deg y
-survey.azimuth_deg/dip_deg.
+Como supuesto provisional del equipo, pendiente de aprobación del docente,
+la estación survey en `MD = 0` gobierna la orientación inicial; si no existe,
+el collar se usa como origen direccional. Por aprobación del equipo, esa
+ausencia se reporta como `WARNING` (`SURVEY-006`) y no bloquea el fallback.
 
 Para la validación de rango angular se aprobó azimut en `[0°, 360°)` y dip en
 `[-90°, 0°]`. El límite de 360° queda excluido porque representa la misma
@@ -80,21 +81,23 @@ se aplican tanto a collar como a survey.
 Reglas adicionales comunicadas para desurvey y positioning:
 
 - En `MD = 0`, comparar azimut y dip de collar y survey. Una diferencia
-  relevante debe reportarse como `WARNING` o `ERROR` según una regla aprobada;
-  todavía no se especificaron el umbral de relevancia ni la correspondencia
-  entre diferencia y severidad. La comparación no decide por sí sola qué
-  orientación gobierna.
+  angular distinta de cero y menor que 2° se reporta como `INFO`; una diferencia
+  igual o mayor que 2° se reporta como `WARNING`. Es un supuesto provisional
+  del equipo, pendiente de aprobación docente; no produce `ERROR` por sí sola.
+  La regla compara la distancia angular mínima para azimut y la diferencia
+  absoluta para dip.
 - Un survey duplicado idéntico es `WARNING`; uno contradictorio es `ERROR`.
-  Al implementar debe precisarse qué campos determinan identidad o
-  contradicción.
+  Como supuesto provisional, son idénticos si azimut y dip difieren cada uno
+  menos de 2°; si cualquiera difiere 2° o más, son contradictorios. `SURVEY-008`
+  aplica esta regla, pendiente de aprobación docente.
 - No completar un survey incompleto inventando estaciones.
 - No extrapolar más allá de la última estación survey sin aprobación explícita.
 - Si un intervalo excede la trayectoria disponible, generar `ERROR` y no
   calcular XYZ para ese intervalo.
 
-Estas reglas no definen qué constituye un survey completo, qué hacer si falta
-una estación survey en `MD = 0`, ni el umbral y la severidad de una diferencia
-collar-survey relevante.
+Sigue pendiente precisar qué constituye un survey completo. Los supuestos
+angulares y de autoridad en `MD = 0` no se consideran decisiones confirmadas
+hasta su validación por el equipo y aprobación docente.
 
 ## 7. Lógica minera
 
@@ -108,12 +111,16 @@ consecutivas. Dados los vectores unitarios `u1` y `u2` y la separación
 `delta_MD`, el dogleg es `beta = acos(clamp(u1 · u2, -1, 1))`, el factor de
 razón es `RF = (2 / beta) * tan(beta / 2)` y el desplazamiento es
 `delta_MD / 2 * (u1 + u2) * RF`; para dogleg tendiente a cero, el límite de
-`RF` es 1. Esta selección no define qué orientación gobierna en `MD = 0`,
-cómo calcular puntos interiores para positioning, el tratamiento numérico de
-doglegs extremos ni el CRS/EPSG. No se deben inventar estaciones ni extrapolar
-más allá del último survey sin aprobación. Un intervalo que exceda la
-cobertura disponible genera `ERROR` y no recibe XYZ. No se ha implementado
-cálculo espacial.
+`RF` es 1. Por supuesto computacional provisional, para evaluar MD dentro de
+un segmento entre estaciones se interpola la dirección por el arco esférico
+menor entre los dos vectores (slerp), usando la fracción de MD, y se calcula
+el desplazamiento parcial con mínima curvatura. Este criterio de evaluación
+interna requiere validación del equipo/docente. `desurvey.py` calcula los
+puntos del collar y de las estaciones observadas; `positioning.py` usa esa
+interpolación para ubicar extremos FROM/TO solo dentro de la cobertura. No se
+inventan estaciones survey ni se extrapola más allá de la última. Un intervalo
+fuera de cobertura genera `ERROR` y no recibe XYZ. El CRS/EPSG y el tratamiento
+de doglegs extremos siguen pendientes.
 
 ## 8. Diseño computacional
 
@@ -128,10 +135,13 @@ Arquitectura aprobada como base:
 - `src/m01/validator.py`: ejecuta controles aprobados; no corresponde al loader
   aplicar reglas mineras. `validate_m01_data(data)` devuelve un
   `ValidationReport` sin modificar las tablas cargadas.
-- `src/m01/desurvey.py`: calculará la trayectoria con mínima curvatura y las
-  convenciones aprobadas, tras resolver la orientación inicial en `MD = 0`,
-  el tratamiento de survey incompleto y la cobertura disponible.
-- `src/m01/positioning.py`: relaciona los intervalos con la trayectoria.
+- `src/m01/desurvey.py`: `desurvey_m01_data(data, validation_report)` calcula
+  la trayectoria hasta la última estación survey observada con mínima
+  curvatura; en MD = 0 usa survey si existe y, si no, la orientación del collar.
+  Bloquea sondajes con errores de collar/survey reportados por validator.
+- `src/m01/positioning.py`: `position_m01_intervals(data, trajectories)`
+  comprueba la cobertura de `from_m` y `to_m` y calcula XYZ de ambos extremos
+  solo si el intervalo está cubierto.
 - `src/m01/visualizer.py`: presenta trayectoria y datos posicionados.
 - `src/m01/exporter.py`: escribe salidas derivadas en los destinos acordados.
 - `tests/`: pruebas de las unidades implementadas.
@@ -156,6 +166,11 @@ módulos siguen pendientes.
   propiedades `blocking` y `requires_review`.
 - `ValidationReport`: agrupa hallazgos y calcula conteos por severidad y
   `has_errors`.
+- `TrajectoryPoint`, `HoleTrajectory` y `DesurveyResult`: representan puntos
+  calculados MD→XYZ, trayectorias por sondaje y hallazgos propios de desurvey.
+- `PositionedInterval` y `PositioningResult`: representan los XYZ de los
+  extremos de intervalos posicionados y errores de cobertura; intervalos
+  no posicionables no se incluyen en la colección de coordenadas.
 - `main()`: coordina `load_m01_data()`, `validate_m01_data()` y la impresión
   del reporte; no contiene reglas de validación.
 - `print_validation_report(report)`: muestra conteos y agrupa hallazgos por
@@ -361,6 +376,111 @@ biblioteca estándar de Python, consistente con `requirements.txt`.
   duplicados, qué constituye un survey incompleto, la consulta de puntos entre
   estaciones y el CRS/EPSG.
 
+### Etapa 14 — 2026-09-27 — Supuesto angular provisional en `MD = 0`
+
+- **Objetivo:** documentar la propuesta del equipo para la autoridad
+  collar/survey, la comparación angular inicial y la clasificación de estaciones
+  duplicadas, sin presentarla como regla confirmada por el docente.
+- **Trabajo realizado:** se agregó DECISION-11 en formato de problema,
+  alternativas, alternativa seleccionada, justificación e impacto. Se registró
+  como supuesto provisional pendiente de validación del equipo y aprobación
+  docente: survey gobierna si hay estación a `MD = 0`; si no, collar sería el
+  origen direccional; diferencias angulares menores a 2° son `INFO`, diferencias
+  iguales o mayores a 2° son `WARNING`; duplicados dentro de 2° en ambos ángulos
+  son `WARNING` y contradictorios son `ERROR`.
+- **Resultado:** `validator.py` aplica provisionalmente el umbral angular a
+  `SURVEY-009`, con diferencia circular mínima para azimut, diferencia absoluta
+  para dip, `INFO` bajo 2° y `WARNING` desde 2°. En esta etapa `SURVEY-008`
+  todavía no implementaba el umbral de duplicados; su actualización posterior
+  queda registrada en Etapa 15.
+- **Pruebas:** `python -m unittest discover -s tests -v` pasó 28 pruebas
+  (7 loader, 19 validator y 2 main). `python main.py` sobre DS01/EXP03 reportó
+  0 ERROR, 1 WARNING y 261 INFO. Los casos añadidos comprobaron diferencia
+  menor que 2°, límite de 2° y diferencia circular de azimut.
+- **Pendiente:** validar/aprobar el supuesto con el equipo y el docente. No se
+  modificó todavía el comportamiento de desurvey ni positioning.
+
+### Etapa 15 — 2026-09-27 — Resolución aprobada para iniciar desurvey
+
+- **Objetivo:** fijar, antes de implementar, el comportamiento de los hallazgos
+  `SURVEY-006` y `SURVEY-008`, y separar el cálculo de trayectoria del
+  posicionamiento de intervalos.
+- **Trabajo realizado:** el equipo aprobó cambiar la ausencia de survey en
+  `MD = 0` a `WARNING`, permitiendo usar la orientación del collar como
+  fallback; el desurvey conservará el bloqueo por `ERROR` ante estaciones
+  survey más profundas que `final_depth_m`. Se aprobó `positioning.py` como
+  responsable de comprobar la cobertura de ambos extremos de cada intervalo,
+  emitir `ERROR` y no producir XYZ cuando alguno quede fuera. Se aprobó que
+  `SURVEY-008` compare azimut y dip duplicados contra la primera estación del
+  mismo sondaje/profundidad: si ambas diferencias son menores que 2°, emitir
+  `WARNING`, conservar la primera fila del CSV e ignorar las redundantes; si
+  cualquiera es igual o mayor que 2°, emitir `ERROR` y bloquear la trayectoria
+  del sondaje.
+- **Estado de las reglas angulares:** siguen siendo supuestos del equipo
+  pendientes de validación del equipo y aprobación docente; no son estándares
+  confirmados.
+- **Plan de pruebas unificado:**
+  1. Trayectorias vertical y horizontal, comprobando direcciones, signos y
+     desplazamientos manuales.
+  2. Dogleg cero, comparando el resultado de mínima curvatura con el cálculo
+     independiente de una línea recta.
+  3. Trayectoria curva calculada únicamente en las estaciones survey observadas,
+     sin crear estaciones sintéticas ni extrapolar después de la última.
+  4. Fallback de orientación a collar cuando falta survey en `MD = 0`, con
+     `SURVEY-006` como `WARNING`; cuando sí existe estación cero, survey gobierna.
+  5. Duplicado survey con diferencias menores que 2°: `WARNING` y retención de
+     una sola estación; duplicado con diferencia igual o superior a 2° en
+     cualquiera de los ángulos: `ERROR` y trayectoria bloqueada.
+  6. Estación survey más profunda que `final_depth_m`: `ERROR` y trayectoria
+     bloqueada para ese sondaje.
+  7. Intervalos con ambos extremos dentro de cobertura: generar XYZ; con
+     `from_m` o `to_m` fuera de cobertura: `ERROR` y ningún XYZ para el
+     intervalo.
+  8. Entrada geométrica inválida y dogleg numéricamente no resoluble: reportar
+     `ERROR` en vez de devolver coordenadas no finitas.
+- **Resultado:** antes de iniciar el código, estas responsabilidades y pruebas
+  quedaron documentadas y aprobadas por el equipo. La mínima curvatura permanece
+  como el método seleccionado en DECISION-10.
+- **Pendiente:** CRS/EPSG, interpretación de códigos litológicos, definición
+  completa de survey incompleto y aprobación docente de los supuestos
+  angulares; estos pendientes no autorizan sintetizar estaciones ni extrapolar.
+
+### Etapa 16 — 2026-09-27 — Desurvey y posicionamiento de intervalos
+
+- **Objetivo:** calcular trayectorias 3D por mínima curvatura y ubicar extremos
+  de intervalos solo dentro de la trayectoria disponible.
+- **Trabajo realizado:** se implementaron `_direction_vector`,
+  `minimum_curvature_displacement` y la orquestación `desurvey_m01_data`.
+  Collar XYZ ancla MD 0; survey en cero gobierna la dirección si existe, y
+  `SURVEY-006` WARNING permite usar collar como fallback si falta. Las filas
+  duplicadas se evalúan contra la primera fila del mismo MD; se conserva la
+  primera si ambas diferencias angulares son menores de 2°, y una contradicción
+  bloquea el sondaje. Errores de collar/survey, incluidos survey más profundo
+  que `final_depth_m`, también bloquean su trayectoria. No se sintetizan
+  estaciones survey y cada trayectoria termina en la última estación observada.
+  `position_m01_intervals` comprueba ambos extremos FROM/TO antes de producir
+  XYZ. Para profundidades dentro de un tramo se usa interpolación esférica
+  (slerp) de dirección y un desplazamiento parcial por mínima curvatura; este
+  detalle es un supuesto computacional pendiente de validación del equipo/docente.
+- **Pruebas computacionales:** `python -m unittest discover -s tests -v` pasó
+  47 pruebas: 7 loader, 22 validator, 11 desurvey, 5 positioning y 2 main.
+  `python -m compileall -q src tests` terminó sin errores.
+- **Validación sobre DS01/EXP03:** el validator reportó 0 ERROR, 1 WARNING y
+  261 INFO. Se calcularon trayectorias para 32 sondajes y posiciones para los
+  4004 intervalos de assay, litología y densidad; no hubo hallazgos de
+  desurvey ni positioning en estos datos. Se verificaron 128 condiciones
+  físicas: origen XYZ igual al collar, MD creciente, longitud de cuerda de cada
+  tramo no mayor que su delta MD y MD final no superior a la máxima estación
+  survey observada. Todas pasaron; todas las coordenadas calculadas fueron
+  finitas. Los casos de prueba incluyen vertical, horizontal, dogleg cero,
+  arco curvo, fallback, duplicados y sus umbrales, estación sobre profundidad
+  final, ausencia de XYZ fuera de cobertura y dogleg de 180° no resoluble.
+- **Limitaciones:** no se integraron todavía desurvey/positioning en `main.py`,
+  no se exportaron resultados, CRS/EPSG sigue UNKNOWN y no se calculó
+  posicionamiento de la tabla de alteración porque el release tiene cero filas.
+  La resolución del dogleg exactamente opuesto se reporta como ERROR; no se
+  escogió una convención para doglegs extremos cercanos a 180°.
+
 ## 10. Decisiones
 
 ### DECISION-01
@@ -484,10 +604,9 @@ para tolerancias, cobertura, cambios angulares y rangos de plausibilidad.
 **Impacto:** el validator no determina longitud coherente por tolerancia,
 cobertura continua de assay/lithology, saltos angulares anómalos ni rangos
 locales de coordenadas/elevación/densidad. Los gaps de density se informan
-como `INFO`, sin umbral de espaciamiento. El comportamiento previo de
-informar cualquier diferencia exacta entre orientación del collar y survey a
-profundidad cero como `WARNING` no sustituye la regla posterior de DECISION-11:
-falta definir qué diferencia es relevante y cuándo corresponde `ERROR`.
+como `INFO`, sin umbral de espaciamiento. La comparación de orientación inicial
+usa ahora provisionalmente el supuesto angular de DECISION-11; este umbral no
+es un estándar confirmado y queda pendiente de aprobación docente.
 
 ### DECISION-09
 
@@ -535,29 +654,65 @@ el límite `RF = 1`.
 no decide qué orientación gobierna en `MD = 0`, cómo consultar posiciones
 entre estaciones, tratamiento numérico de doglegs extremos ni CRS/EPSG. No se
 debe extrapolar más allá del último survey sin aprobación explícita. El método
-no está implementado ni probado.
+se implementó y probó en la Etapa 16; siguen pendientes las decisiones
+geométricas que no cubre esta selección, como la interpolación entre estaciones
+y CRS/EPSG.
 
 ### DECISION-11
 
 **Problema:** definir políticas de entrada y cobertura para desurvey y
 positioning.
 
-**Reglas comunicadas por el estudiante:**
+**Alternativas consideradas:**
+
+- A. Mantener la autoridad, el umbral angular y el criterio de duplicados sin
+  definir hasta recibir una regla docente.
+- B. Usar reglas explícitas como supuestos del equipo, claramente pendientes
+  de validación y aprobación docente.
+
+**Alternativa seleccionada:** B, como **SUPUESTO PROVISIONAL DEL EQUIPO,
+PENDIENTE DE VALIDACIÓN POR EL EQUIPO Y APROBACIÓN DOCENTE**. No es una regla
+confirmada ni un valor estándar de la industria.
+
+**Justificación:** las diapositivas revisadas delegan estas decisiones al
+equipo minero e indican que el agente presenta evidencia, no decide por el
+equipo. Para avanzar sin presentar una decisión del equipo como dato
+observado, se registra explícitamente el supuesto propuesto y su estado.
+
+**Reglas y supuestos registrados:**
 
 - Comparar azimut y dip de collar con survey en `MD = 0`; una diferencia
-  relevante es `WARNING` o `ERROR` según una regla aprobada.
-- Un duplicado survey idéntico es `WARNING`; uno contradictorio es `ERROR`.
+  distinta de cero y menor que 2° es `INFO`; una diferencia igual o mayor que
+  2° es `WARNING`. El umbral es un supuesto y no genera `ERROR` por sí solo.
+  Para azimut se compara la menor diferencia angular; para dip, la diferencia
+  absoluta.
+- Si existe una estación survey en `MD = 0`, survey gobierna la orientación
+  inicial y collar queda como referencia/backup. Si no existe, collar se usa
+  como origen direccional. La ausencia se reporta como `WARNING` por
+  `SURVEY-006`, no como bloqueo del desurvey.
+- Dos estaciones survey en el mismo MD se consideran idénticas si tanto la
+  diferencia de azimut como la de dip son menores que 2°: `WARNING`, conservar
+  una y no usar la redundante. Si cualquiera de las dos diferencias es igual
+  o mayor que 2°, se consideran contradictorias: `ERROR`, requiere resolución
+  humana. Este criterio también es supuesto y está pendiente de aprobación.
 - No inventar estaciones para completar surveys incompletos.
 - No extrapolar después de la última estación survey sin aprobación explícita.
 - Si un intervalo queda fuera de la trayectoria disponible, registrar `ERROR`
   y no generar XYZ para ese intervalo.
 
-**Impacto:** estas reglas limitan los resultados posicionables a la cobertura
-real de la trayectoria y prohíben crear estaciones observadas artificiales.
-Antes de implementarlas se debe precisar el umbral/severidad de diferencias
-relevantes en `MD = 0`, qué campos determinan duplicidad/contradicción, qué
-casos definen un survey incompleto y cómo tratar un sondaje sin estación en
-`MD = 0`. No se selecciona aquí una fuente de orientación dominante.
+**Impacto:** el validator `SURVEY-009` aplica el umbral angular provisional
+para discrepancias collar-survey, sin bloquear el pipeline: diferencias
+menores a 2° producen `INFO` y las iguales o mayores a 2° producen `WARNING`.
+Por aprobación expresa del equipo para la etapa siguiente, `SURVEY-006` es
+`WARNING` y permite el fallback de orientación a collar cuando falta la
+estación cero; `SURVEY-008` compara duplicados contra la primera fila del mismo
+`hole_id`/`depth_m`, informa `WARNING` y conserva una cuando ambos ángulos
+difieren menos de 2°, y emite `ERROR` ante diferencia de 2° o más en cualquiera
+de ellos, bloqueando el desurvey de ese sondaje. Estos umbrales continúan
+identificados como supuestos pendientes de aprobación docente.
+`desurvey.py` calcula la trayectoria MD→XYZ hasta la última estación survey
+observada; `positioning.py` valida cobertura de `from_m`/`to_m` y no emite XYZ
+para intervalos fuera de cobertura. No se sintetizan estaciones ni se extrapola.
 
 ### DECISION-06
 
@@ -576,12 +731,15 @@ transformaciones se guardarán fuera de esa carpeta.
 src/m01/__init__.py
 src/m01/loader.py
 src/m01/validator.py
+src/m01/desurvey.py
+src/m01/positioning.py
 main.py
 tests/__init__.py
 tests/test_m01_loader.py
 tests/test_m01_validator.py
 tests/test_main.py
-tests/test_m01_validator.py
+tests/test_m01_desurvey.py
+tests/test_m01_positioning.py
 docs/implementation/IMP-001_m01_validate_desurvey.md
 outputs/tables/T1_audit_summary_DS01_EXP03.xlsx
 ```
@@ -599,14 +757,18 @@ Set-Location .\PlanMinUPN-G03_; python -m unittest discover -s tests -v
 ### Resultado real
 
 - **Status:** PASS
-- **Tests passed:** 25 (7 loader, 16 validator, 2 main)
+- **Tests passed:** 47 (7 loader, 22 validator, 11 desurvey, 5 positioning, 2 main)
 - **Tests failed:** 0
 - La ejecución incluyó fixtures pequeños de validación y una prueba sobre
   los datos reales cargados desde `data/raw/`.
-- La corrida de validator sobre DS01/EXP03 produjo 0 ERROR, 1 WARNING y
+- La corrida de `main.py` sobre DS01/EXP03 produjo 0 ERROR, 1 WARNING y
   261 INFO; los hallazgos quedan descritos en la Etapa 8.
-- `main.py` sobre el release produjo el mismo resumen, con detalle agrupado
-  por regla para la consola.
+- Se probaron discrepancias de orientación inicial y duplicados por debajo y
+  en el umbral provisional de 2°, incluida la diferencia circular de azimut.
+- `python -m compileall -q src tests`: terminó sin errores.
+- La ejecución directa del flujo validator → desurvey → positioning para
+  DS01/EXP03 produjo 32 trayectorias y 4004 intervalos posicionados, sin
+  hallazgos propios de desurvey ni positioning.
 
 Comando ejecutado desde la raíz del repositorio:
 
@@ -619,46 +781,55 @@ python -m unittest discover -s tests -v
 - [ ] Unidades consistentes.
 - [ ] Signos económicos correctos cuando corresponda.
 - [ ] Magnitudes razonables.
-- [ ] Restricciones operacionales respetadas.
-- [ ] Casos extremos revisados.
-- [ ] Caso manual independiente revisado cuando es posible.
+- [x] Restricciones geométricas de cobertura y no extrapolación respetadas.
+- [x] Casos límite vertical, horizontal, dogleg cero y dogleg opuesto revisados
+      en pruebas.
+- [x] Caso manual independiente revisado para dogleg cero y trayectorias
+      vertical/horizontal.
 
 ### Evidencia / comentario
 
 El loader se verificó mediante conteos, conversiones y conservación de los
-encabezados de la tabla vacía de alteración. El validator no emitió errores
-para el release en esta ejecución; registró la diferencia de nombres de
-campaña como warning y reportó observaciones informativas. Los valores
-angulares cargados cumplen los rangos corregidos. Este resultado no determina
-suficiencia o aptitud minera. No se calculó una trayectoria desurveyada. La
-mínima curvatura está seleccionada, pero aún no implementada; permanecen
-pendientes el CRS/EPSG, las reglas completas para `MD = 0` y el cálculo de
-puntos dentro de segmentos survey.
+encabezados de la tabla vacía de alteración. Sobre el release, el validator
+reportó 0 ERROR, 1 WARNING y 261 INFO; el warning corresponde a la diferencia
+de nombres de campaña entre manifest y CSV. Se calcularon 32 trayectorias con
+orígenes coincidentes con sus collares, MD crecientes y longitudes de cuerda no
+mayores que la distancia MD de cada tramo. Los 4004 intervalos no vacíos de
+assay, litología y densidad quedaron dentro de cobertura y recibieron XYZ en
+ambos extremos. Las coordenadas calculadas fueron finitas. Estas comprobaciones
+verifican la geometría del release, pero no validan un CRS/EPSG ni determinan
+suficiencia o aptitud minera. La interpolación esférica para posicionar puntos
+intermedios es un supuesto computacional pendiente de validación del
+equipo/docente.
 
 ## 14. Limitaciones y pendientes
 
 ### LIMITATION-01
 
 El loader y un subconjunto de controles documentados que no requieren
-umbrales pendientes están implementados. No están implementados `desurvey.py`,
-`positioning.py`, `visualizer.py` o `exporter.py`.
+umbrales pendientes están implementados. `desurvey.py` y `positioning.py`
+están implementados y probados por separado, pero todavía no están integrados
+en `main.py`. `visualizer.py` y `exporter.py` no están implementados.
 
 ### LIMITATION-02
 
-El método de mínima curvatura está seleccionado, pero aún no implementado.
-Faltan el CRS/EPSG, la orientación inicial que gobierna en `MD = 0`, el umbral
-y severidad para diferencias angulares relevantes, la consulta de puntos entre
-estaciones, la definición de survey incompleto y el manejo numérico de doglegs
-extremos. La prohibición de extrapolar sin aprobación explícita y el error sin
-XYZ para intervalos fuera de la trayectoria disponible ya están definidos,
-pero no implementados.
+La mínima curvatura está implementada para calcular puntos en el collar y en
+estaciones survey observadas. Sigue pendiente el CRS/EPSG, la definición
+completa de survey incompleto y el manejo numérico de doglegs extremos.
+`SURVEY-009` y `SURVEY-008` aplican el umbral provisional de 2° con severidades
+`INFO`/`WARNING` y `WARNING`/`ERROR`, respectivamente; son supuestos pendientes
+de validación del equipo y aprobación docente. La interpolación esférica para
+consultar posiciones dentro de tramos también debe validarse. No se extrapola;
+positioning emite `ERROR` y no genera XYZ si algún extremo de intervalo queda
+fuera de cobertura. Estos módulos aún no se conectan desde `main.py`.
 
 ### FUTURE-01
 
-Definir tolerancias para comparar `length_m` con `to_m - from_m` y el umbral
-angular que hace relevante una diferencia entre orientación del collar y
-survey a profundidad cero; aprobar también qué severidad corresponde a cada
-caso.
+Definir tolerancias para comparar `length_m` con `to_m - from_m`.
+
+El umbral de 2° y severidades `INFO`/`WARNING` para discrepancias
+collar-survey están propuestos como supuesto del equipo, pero requieren
+validación del equipo y aprobación docente antes de considerarse confirmados.
 
 ### FUTURE-02
 
@@ -674,26 +845,28 @@ convención que relaciona `campaigns` del manifest con `campaign_id` de los CSV.
 
 ### FUTURE-04
 
-Seleccionar y documentar qué orientación gobierna en MD = 0 y qué hacer si no
-existe una estación survey en cero. En la comparación descriptiva previa del
-release, los 32 pares collar/survey en profundidad cero coincidieron en azimut
-y dip; este hecho observado no sustituye la decisión para datos futuros que
-presenten discrepancias. Definir qué campos determinan un duplicado
-idéntico/contradictorio y qué situaciones constituyen un survey incompleto.
+Validar con el equipo y obtener aprobación docente para el supuesto de que
+survey gobierna en `MD = 0` y collar se usa si no hay estación a cero; la
+ausencia se reporta como WARNING mediante `SURVEY-006`. En los datos
+inspeccionados, los 32 pares disponibles collar/survey a profundidad cero
+coincidieron; esto es evidencia observada, no aprobación del supuesto.
+Validar también el umbral de 2° y el criterio supuesto para duplicados
+idénticos/contradictorios. Definir qué situaciones constituyen un survey
+incompleto.
 
 ### FUTURE-05
 
-Definir el cálculo de posiciones entre estaciones para positioning, el manejo
-numérico del caso de dogleg extremo y el CRS/EPSG antes de implementar y
-validar la trayectoria. No extrapolar después de la última estación sin
-aprobación explícita; los intervalos que excedan la cobertura disponible
-deben recibir `ERROR` y no generar XYZ.
+Validar el supuesto de interpolación esférica para obtener posiciones entre
+estaciones, definir el manejo numérico de doglegs extremos y documentar el
+CRS/EPSG. No extrapolar después de la última estación sin aprobación explícita;
+intervalos que excedan la cobertura reciben `ERROR` y no generan XYZ.
 
 ## 15. Uso del agente de IA
 
 - [x] Explicación conceptual.
 - [x] Arquitectura.
-- [ ] Algoritmo.
+- [x] Algoritmo de mínima curvatura e interpolación parcial para positioning,
+      con el supuesto de interpolación aún pendiente de validación externa.
 - [x] Implementación.
 - [x] Pruebas.
 - [x] Depuración.
@@ -702,10 +875,10 @@ deben recibir `ERROR` y no generar XYZ.
 
 Comentario: asistencia para inventario y explicación de datos, propuesta de
 arquitectura, revisión de relaciones y unidades, plan de validación y
-consolidación objetiva de evidencia T1; implementación acotada del loader y
-validator y elaboración/ejecución de pruebas; documentación de la selección
-de mínima curvatura. No se implementó desurvey ni se interpretaron los
-hallazgos como conclusiones mineras.
+consolidación objetiva de evidencia T1; implementación del loader, validator,
+desurvey y positioning, diseño/ejecución de pruebas y registro de resultados.
+Los hallazgos y verificaciones geométricas no se interpretan como conclusiones
+de recursos, reservas o aptitud minera.
 
 ## 16. Checklist de cierre
 
@@ -713,10 +886,10 @@ hallazgos como conclusiones mineras.
 - [ ] Inputs documentados.
 - [ ] Unidades verificadas.
 - [x] Supuestos identificados.
-- [ ] Lógica minera documentada.
-- [ ] Implementación terminada.
+- [ ] Lógica minera documentada y validada para todas las etapas de M01.
+- [ ] Implementación terminada e integrada en el flujo completo de M01.
 - [x] Pruebas ejecutadas o justificadas como NOT RUN.
-- [x] Validación computacional realizada para loader y validator.
+- [x] Validación computacional realizada para loader, validator, desurvey y positioning.
 - [ ] Validación minera realizada.
 - [x] Archivos modificados registrados.
 - [x] Limitaciones registradas.
