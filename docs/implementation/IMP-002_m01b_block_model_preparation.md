@@ -140,6 +140,20 @@ Reutiliza `loader.load_m01_data`, `validator.validate_m01_data`, `desurvey.desur
 - **Resultado:** 3,632 composites, metros conservados (diferencia 0.0), 0 findings, los 32 sondajes con XYZ. Cifras en sección 13.
 - **Pendiente:** Verificar en PyCharm; revisar el código litológico `AIR`; topografía y etapas posteriores de M01B.
 
+### Etapa 5 — 2026-10-24
+
+- **Objetivo:** Incorporar la topografía común, decidir dominios y grid, y clasificar cada bloque frente a la superficie (pasos 2, 6, 7 y 8 del PDF del docente).
+- **Trabajo realizado:** Se copió `Topopl.csv` (sin modificar) a `data/raw/topography/` y se auditó (`outputs/tables/IMP002_topography_audit_M01B.md`). Se registraron DECISION-02 (dominios), DECISION-03 (grid) y DECISION-04 (método topográfico). Se creó `src/m01/block_model.py` y `tests/test_m01_block_model.py` (17 pruebas sintéticas etiquetadas). Se ejecutó contra los datos reales y se contrastó con un TIN independiente.
+- **Resultado:** 29,952 bloques: ROCK 16,965 (56.6 %), PARTIAL 1,532 (5.1 %), AIR 11,455 (38.2 %), OUTSIDE_TOPO_COVERAGE 0; 0 findings. Detalle en DECISION-03 y DECISION-04.
+- **Pendiente:** Validación de bloques, visualización, densidad y tonelaje. Revisión del estudiante de DECISION-03 y DECISION-04.
+
+### Etapa 6 — 2026-10-24
+
+- **Objetivo:** Asignar un dominio preliminar a cada bloque de roca (paso 8, P4), sin estimar ley.
+- **Trabajo realizado:** Se creó `src/m01/domain_assignment.py` y `tests/test_m01_domain_assignment.py` (16 pruebas sintéticas etiquetadas). Se validó el radio de búsqueda con validación cruzada dejando un pozo fuera (DECISION-05) y se contrastó el resultado con un cálculo independiente (scipy).
+- **Resultado:** 29,952 bloques; 18,497 de roca: 7,000 `ASSIGNED_SUPPORTED`, 8,897 `ASSIGNED_EXTRAPOLATED`, 2,600 `UNKNOWN_NO_SUPPORT`; 11,455 `NOT_ROCK_AIR`; 2,362 bloques con `mixed_flag`. Coincidencia con el cálculo independiente: 100 %.
+- **Pendiente:** Validación de bloques (`block_validation`), visualización, densidad y tonelaje; revisión del estudiante de DECISION-03, -04 y -05.
+
 ---
 
 ## 10. Decisiones
@@ -167,6 +181,89 @@ Reutiliza `loader.load_m01_data`, `validator.validate_m01_data`, `desurvey.desur
 
 **Impacto:** el compositado actúa sobre 25 cortes por contacto y 53 residuales; el resto de los datos se conserva casi intacto. Ver limitaciones.
 
+### DECISION-02
+
+**Problema:** ¿Qué dominios preliminares usar para el modelo de bloques geológico (M01B, paso 6)?
+
+**Alternativas consideradas:**
+
+- A. Un dominio por código litológico: `DIO`, `POR`, `BRX`, `REG`; `AIR` fuera del dominio geológico (`UNASSIGNED`).
+- B. Dos dominios por comportamiento: `MINERALIZADO` (POR+BRX) y `ESTERIL` (DIO+REG).
+- C. Tres dominios: `DIO`, `POR+BRX`, `REG`.
+
+**Alternativa seleccionada:** A.
+
+**Procedencia:** la alternativa A, la evidencia y las alternativas B y C fueron propuestas por el agente de IA (Claude) el 2026-10-24 a pedido del estudiante, como ejemplo guiado de práctica. El estudiante adoptó A y redactó su justificación a partir de una frase modelo entregada por el agente, que adaptó con sus palabras (texto más abajo). No hay regla de dominios entregada por el docente (el grupo parte de cero). Para el examen real el estudiante debe decidir y justificar sin esta ayuda.
+
+**Justificación del estudiante (texto original, sin editar; adaptado de una frase modelo del agente):**
+
+> "Elijo A (un dominio por litología) porque el Cu y la densidad cambian mucho entre los distintos tipos de litología: la litologia POR tiene unas 10 veces el % de Cu de DIO y BRX y casi el doble de POR, así que juntarlas en B o C mezclaría poblaciones distintas. Además A se puede reagrupar después y B o C no."
+
+*Aclaración del agente sobre los datos:* POR tiene unas 10 veces el Cu de DIO (0.515 % frente a 0.050 %), y BRX tiene casi el doble de Cu que POR (1.043 % frente a 0.515 %).
+
+**Justificación del agente (evidencia):**
+
+1. El Cu separa las litologías: Cu ponderado POR 0.515 %, DIO 0.050 %, BRX 1.043 % (CV 0.06), REG 0.088 %. Fusionar mezclaría poblaciones distintas.
+2. El método posterior es por grupo; cada dominio debe ser homogéneo.
+3. A es el más fino y reversible: se puede reagrupar en B o C por remapeo; lo inverso exige volver a los datos.
+4. Soporte para asignación preliminar: BRX 8 pozos / 258 composites; REG 32 pozos / 108 composites.
+5. REG no se fusiona con DIO: densidad media 2.31 frente a 2.70 t/m3 (6 y 135 muestras).
+
+**Evidencia:** `data/raw/lithology.csv`, `data/raw/density.csv` y `data/processed/m01b/composites.csv` (cálculo del 2026-10-24). BRX aparece solo entre 110 y 238 m, siempre dentro de POR (POR→BRX→POR). Alteración: sin registros.
+
+**Limitaciones asociadas:** BRX solo en 8 pozos (continuidad entre pozos interpretada, no medida); REG con solo 6 muestras de densidad; `AIR` (2 intervalos, 3.0 m, 2 composites) con significado UNKNOWN, no se le asigna dominio.
+
+### DECISION-03
+
+**Problema:** ¿Qué tamaño de bloque y extensión de grid usar (paso 7, gate 2)?
+
+**Alternativas consideradas:** 10x10x5 m; 20x20x10 m; 25x25x10 m; 30x30x15 m; 50x50x15 m.
+
+**Alternativa seleccionada:** 25 x 25 x 10 m, origen (242225, 8196100, 3060), 26 x 24 x 48 bloques = 29,952 celdas (huella de los sondajes más un bloque de margen; techo en 3,540 m).
+
+**Procedencia:** propuesta por el agente de IA (Claude) el 2026-10-24; el estudiante la aceptó ("si queda aceptado el grid"). Justificación del estudiante en sus propias palabras: PENDIENTE.
+
+**Evidencia:** espaciamiento de collares por vecino más cercano: mediana 65 m (mín. 20, máx. 140). Con 25x25x10 m cada bloque ocupado recibe en promedio 4.8 composites (10x10x5 m: 2.4; más grueso que el contacto POR/BRX de 18 a 80 m solo a partir de 50 m). 10 m de altura es múltiplo de los 2 m del composite. El soporte real no depende del tamaño de bloque: la fracción de celdas a 50 m o menos de un composite es 25 a 29 % en todas las opciones. Solo el 2.7 % de las celdas del grid contiene composites. Hallazgo GRID-001: la superficie llega a 3,533.8 m dentro del grid, por lo que el techo se subió de 3,510 a 3,540 m (45 a 48 capas; 28,080 a 29,952 celdas).
+
+### DECISION-04
+
+**Problema:** ¿Cómo se evalúa la superficie topográfica y cómo se clasifica cada bloque (aire, roca, parcial, fuera de cobertura)? (paso 8, etapa P3)
+
+**Alternativas consideradas:**
+
+- A. Clasificar solo por el centro del bloque (rápido; puede equivocarse en bloques que la superficie corta).
+- B. Evaluar la superficie en las 4 esquinas y el centro de cada columna; ROCK si el tope del bloque no supera la cota mínima, AIR si su base no está bajo la cota máxima, PARTIAL en otro caso.
+- C. Calcular la fracción ocupada de cada bloque (exacto, pero con más costo y supuestos).
+
+**Alternativa seleccionada:** B.
+
+**Superficie:** la topografía son curvas de nivel digitalizadas (99.1 % de las cotas enteras). La cota en un punto se obtiene con la ponderación inversa al cuadrado de la distancia del punto más cercano de cada uno de 8 sectores angulares, radio 40 m. Hay cobertura solo si al menos 4 sectores tienen punto y los puntos rodean al lugar (mayor hueco angular menor a 180 grados); si no, el estado es `OUTSIDE_TOPO_COVERAGE` y no se extrapola. Solo se usa la biblioteca estándar de Python, como el resto del repositorio.
+
+**Procedencia:** decidida e implementada por el agente de IA (Claude) el 2026-10-24 por pedido del estudiante. PENDIENTE de revisión, adopción y justificación del estudiante.
+
+**Evidencia (verificación independiente con TIN lineal de scipy, solo para contrastar):** diferencia de cota en 624 centros de columna: media 0.02 m, desv. 0.31 m, máx. |d| 1.43 m. Estados coinciden en el 99.9 % de una muestra de 3,000 bloques (2 discrepancias, ambas ROCK/PARTIAL en el límite). Los 3,632 composites caen dentro del grid: 3,440 en bloques ROCK, 192 en PARTIAL, 0 en AIR. Resultado: ROCK 16,965; PARTIAL 1,532; AIR 11,455; OUTSIDE_TOPO_COVERAGE 0.
+
+**Limitaciones:** el volumen de un bloque PARTIAL no es el volumen nominal de roca (no se calcula la fracción). La superficie proviene de curvas de nivel y su CRS no consta (UNKNOWN). La coincidencia collar-superficie es de ±2 m. El estado AIR/ROCK no implica geología interpretada.
+
+### DECISION-05
+
+**Problema:** ¿Cómo asignar dominio geológico a un bloque y hasta qué distancia de los datos (paso 8, gate 3: vecindad, radios, fallback)?
+
+**Alternativas consideradas:** (A) un solo radio; (B) dos pasadas: soportada y extrapolada, con `UNKNOWN` más allá; (C) elipsoide con anisotropía vertical. Método: dominio del composite más cercano (distancia 3D, sin ponderar), con `UNKNOWN` fuera de radio.
+
+**Alternativa seleccionada:** B, radios 50 m (`ASSIGNED_SUPPORTED`) y 100 m (`ASSIGNED_EXTRAPOLATED`), isotrópico. Los composites con código `AIR` (2) se excluyen como fuente; no se inventa dominio para `AIR`, aire fuera de topografía ni bloques sin soporte.
+
+**Procedencia:** decidida e implementada por el agente de IA (Claude) el 2026-10-24 por pedido del estudiante. PENDIENTE de revisión, adopción y justificación del estudiante.
+
+**Evidencia (validación cruzada dejando un pozo fuera, 3,630 composites):** predecir la litología con el composite más cercano de otros pozos acierta 98.4 % a 25 m, 92.7 % a 40 m, 90.9 % a 50 m, 87.5 % a 65 m, 82.7 % a 100 m y 75.0 % a 150 m, con una cobertura de 17.5, 42.4, 49.4, 58.2, 70.2 y 100 %. La clase mayoritaria sola (DIO) acierta 46.6 %. La franja de 50 a 100 m acierta unos 63 %, por eso se marca como extrapolada. Un factor de anisotropía vertical de 2 sube el acierto de 87.5 a 88.8 % (65 m), mejora que no justifica la complejidad. Contraste independiente con scipy: estados 100 % iguales, dominios iguales en 15,897 bloques, máxima diferencia de distancia 0.0005 m. De los 770 bloques que contienen composites, el 98.7 % toma el dominio mayoritario interno.
+
+**Limitaciones:**
+
+- Las proporciones no son proporciones geológicas: entre los bloques asignados, DIO 72.2 %, POR 19.2 %, REG 7.6 % y BRX 1.0 %, frente a 46.6 %, 43.4 %, 2.9 % y 7.1 % de los metros compuestados. El vecino más cercano no interpola contactos ni extiende lentes como BRX (8 pozos, 18 a 80 m de espesor), y los bloques entre pozos quedan más cerca de la parte superior de cada pozo.
+- El 38 % de los bloques de roca tiene soporte a 50 m o menos; el 14 % queda `UNKNOWN`.
+- `mixed_flag` marca 2,362 bloques con más de un dominio dentro de 50 m (cerca de contactos); el contacto no se modela.
+- El dominio asignado es una clasificación categórica preliminar, no un modelo geológico interpretado ni de recursos.
+
 ---
 
 ## 11. Archivos creados o modificados
@@ -179,11 +276,19 @@ docs/implementation/IMP-002_m01b_block_model_preparation.md  (nuevo)
 outputs/logs/baseline_M01B.txt                        (nuevo)
 outputs/tables/IMP002_input_audit_M01B.md             (nuevo)
 outputs/tables/IMP002_assay_analysis_M01B.md          (nuevo)
+data/raw/topography/Topopl.csv                        (nuevo, material oficial sin modificar)
+outputs/tables/IMP002_topography_audit_M01B.md        (nuevo)
+src/m01/block_model.py                                (nuevo)
+tests/test_m01_block_model.py                         (nuevo)
+data/processed/m01b/blocks_topo.csv                   (nuevo, derivado)
+src/m01/domain_assignment.py                          (nuevo)
+tests/test_m01_domain_assignment.py                   (nuevo)
+data/processed/m01b/blocks_domains.csv                (nuevo, derivado)
 docs/exam/T2_M01B/01_AGENT_EXAM_M01B.md               (nuevo, material oficial sin modificar)
 docs/exam/T2_M01B/02_SCENARIO_EXAM_M01B.md            (nuevo, material oficial sin modificar)
 ```
 
-`data/raw/` no fue modificado. Ningún archivo de gobernanza fue modificado. `main.py`, `loader.py`, `validator.py`, `desurvey.py` y `positioning.py` no fueron modificados.
+Los archivos originales de `data/raw/` no fueron modificados; se agregó la carpeta `data/raw/topography/` con `Topopl.csv` sin cambios. Ningún archivo de gobernanza fue modificado. `main.py`, `loader.py`, `validator.py`, `desurvey.py` y `positioning.py` no fueron modificados.
 
 ---
 
@@ -202,6 +307,8 @@ python -m src.m01.compositing
 - **Status:** PASS (ejecutado en sesión de diagnóstico remoto; ver SUP-02)
 - **Tests passed:** 65 en total (47 previos + 18 nuevos de compositado)
 - **Tests failed:** 0
+- **Etapa 5 (2026-10-24):** 82 pruebas en total (65 previas + 17 de `block_model`), 0 fallos, ejecutadas con `python -m unittest discover` en sesión de diagnóstico remoto; también `python -m src.m01.block_model` sobre los datos reales.
+- **Etapa 6 (2026-10-24):** 98 pruebas en total (82 + 16 de `domain_assignment`), 0 fallos, con `python -m unittest discover` en sesión de diagnóstico remoto; también `python -m src.m01.domain_assignment` sobre los datos reales.
 
 Las 18 pruebas nuevas usan datos sintéticos pequeños, solo en tests, y cubren: dos assays de 1 m que forman un composite de 2 m; ley ponderada por longitud; assay de 2 m conservado; residual terminal; contacto dentro de un assay; ningún composite cruza un contacto; conservación de metros; `from_m < to_m` y longitud positiva; independencia entre sondajes; hueco que corta el tramo; assay con tramo sin litología, solapado o inválido; XYZ en un pozo vertical; composite fuera de cobertura sin XYZ; escritura del CSV.
 
