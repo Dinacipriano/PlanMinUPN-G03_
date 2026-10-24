@@ -3,11 +3,11 @@
 ## 1. Identificación
 
 - **Implementation ID:** IMP-002
-- **Module:** M01B — Block Model Preparation (baseline, auditoría de inputs, análisis de assay y compositado)
+- **Module:** M01B — Block Model Preparation (baseline, auditoría de inputs, análisis de assay, compositado, grid, topografía, asignación de dominios, validación y visor 3D)
 - **Date:** 2026-10-23
 - **Group:** G03
 - **Participants:** PENDIENTE DE COMPLETAR por el equipo
-- **Status:** IN_PROGRESS (etapa de compositado implementada, probada y validada; faltan etapas posteriores de M01B)
+- **Status:** IN_PROGRESS (implementado, probado y con controles automáticos hasta el visor 3D; pendientes la interpretación minera del estudiante, sus justificaciones de DECISION-03 a 05 y los participantes)
 
 ---
 
@@ -152,7 +152,28 @@ Reutiliza `loader.load_m01_data`, `validator.validate_m01_data`, `desurvey.desur
 - **Objetivo:** Asignar un dominio preliminar a cada bloque de roca (paso 8, P4), sin estimar ley.
 - **Trabajo realizado:** Se creó `src/m01/domain_assignment.py` y `tests/test_m01_domain_assignment.py` (16 pruebas sintéticas etiquetadas). Se validó el radio de búsqueda con validación cruzada dejando un pozo fuera (DECISION-05) y se contrastó el resultado con un cálculo independiente (scipy).
 - **Resultado:** 29,952 bloques; 18,497 de roca: 7,000 `ASSIGNED_SUPPORTED`, 8,897 `ASSIGNED_EXTRAPOLATED`, 2,600 `UNKNOWN_NO_SUPPORT`; 11,455 `NOT_ROCK_AIR`; 2,362 bloques con `mixed_flag`. Coincidencia con el cálculo independiente: 100 %.
-- **Pendiente:** Validación de bloques (`block_validation`), visualización, densidad y tonelaje; revisión del estudiante de DECISION-03, -04 y -05.
+- **Pendiente:** Visualización 3D; revisión del estudiante de DECISION-03, -04 y -05.
+
+### Etapa 7 — 2026-10-24
+
+- **Objetivo:** Controles independientes del modelo de bloques y secciones para inspección minera (paso 11, P5).
+- **Trabajo realizado:** Se creó `src/m01/block_validation.py` y `tests/test_m01_block_validation.py` (21 pruebas sintéticas etiquetadas). Los controles releen los CSV generados y recalculan las reglas sin reutilizar el código de generación. Se generó `outputs/tables/IMP002_block_validation_M01B.md` con la tabla de controles y dos secciones de texto (oeste-este en iy=12, sur-norte en ix=13).
+- **Resultado:** 21 controles: 15 PASS, 6 WARNING, 0 FAIL. Warnings: bloques PARTIAL 1,532 (5.1 %); 10 de 770 bloques con composites difieren del dominio mayoritario interno; diferencia de proporciones frente a metros (DIO +25.6 pp, POR -24.2 pp, BRX -6.1 pp, REG +4.7 pp); 2,600 bloques de roca UNKNOWN (14.1 %); 8,897 extrapolados (48.1 %); 2,362 con `mixed_flag`.
+- **Pendiente:** Interpretación minera del estudiante de las secciones; integración en `main.py`; cierre de IMP-002.
+
+### Etapa 8 — 2026-10-24
+
+- **Objetivo:** Visualización 3D que permita auditar el modelo y no solo mostrarlo (paso 12, P6).
+- **Trabajo realizado:** Se creó `src/m01/visualizer.py` y `tests/test_m01_visualizer.py` (9 pruebas sintéticas etiquetadas). Genera `outputs/figures/IMP002_block_model_3d_M01B.html` (793 KB, datos embebidos; carga Three.js r128 desde cdnjs). Capas: caja del grid, topografía evaluada (malla cada 12.5 m), sondajes y collares, composites coloreados por litología y bloques de roca. Los bloques AIR no se dibujan; los UNKNOWN, extrapolados y PARTIAL se mantienen visibles. Filtros por dominio, soporte y estado topográfico, recorte por índice X/Y/Z, opacidad, cuatro modos de color (dominio, soporte, topografía, contacto cercano) y clic sobre un bloque para ver sus datos.
+- **Resultado:** 18,497 bloques de roca dibujados de 29,952 (11,455 AIR omitidos), 32 sondajes y 3,632 composites. Comprobado abriendo la página en Chromium sin interfaz: sin errores de consola, los filtros cambian el recuento (solo soportados: 7,000 bloques) y el clic devuelve los datos del bloque. La inspección visual del modelo por el estudiante sigue PENDIENTE.
+- **Pendiente:** Interpretación minera del estudiante; cierre de IMP-002.
+
+### Etapa 9 — 2026-10-24
+
+- **Objetivo:** Integrar M01B en el punto de entrada sin concentrar lógica en él (paso 13).
+- **Trabajo realizado:** `main.py` ahora acepta `--stage m01` (por defecto, comportamiento y salida sin cambios) y `--stage m01b`, que solo orquesta en orden: compositado, grid y topografía, dominios, validación independiente y visor 3D. Devuelve código de salida 1 solo si la validación de bloques tiene un FAIL. Se agregó `tests/test_main_m01b.py` (5 pruebas; una de integración sobre los datos reales que escribe solo en una carpeta temporal). `run_m01b_visualizer` recibió parámetros de rutas de entrada. Los módulos independientes se probaron antes de integrarlos.
+- **Resultado:** `python main.py --stage m01b`: 3,632 composites (diferencia de metros 0.000000), 29,952 bloques, 18,497 de roca, validación WARNING (15 PASS, 6 WARNING, 0 FAIL), código de salida 0. Los CSV regenerados no difieren de los ya guardados en el repositorio (reproducible).
+- **Pendiente:** Interpretación minera del estudiante; justificaciones de DECISION-03 a 05; participantes; ejecutar las pruebas en el entorno PyCharm.
 
 ---
 
@@ -284,11 +305,19 @@ data/processed/m01b/blocks_topo.csv                   (nuevo, derivado)
 src/m01/domain_assignment.py                          (nuevo)
 tests/test_m01_domain_assignment.py                   (nuevo)
 data/processed/m01b/blocks_domains.csv                (nuevo, derivado)
+src/m01/block_validation.py                           (nuevo)
+tests/test_m01_block_validation.py                    (nuevo)
+outputs/tables/IMP002_block_validation_M01B.md        (nuevo, derivado)
+src/m01/visualizer.py                                 (nuevo)
+tests/test_m01_visualizer.py                          (nuevo)
+outputs/figures/IMP002_block_model_3d_M01B.html       (nuevo, derivado)
+main.py                                               (modificado: etapa --stage m01b)
+tests/test_main_m01b.py                               (nuevo)
 docs/exam/T2_M01B/01_AGENT_EXAM_M01B.md               (nuevo, material oficial sin modificar)
 docs/exam/T2_M01B/02_SCENARIO_EXAM_M01B.md            (nuevo, material oficial sin modificar)
 ```
 
-Los archivos originales de `data/raw/` no fueron modificados; se agregó la carpeta `data/raw/topography/` con `Topopl.csv` sin cambios. Ningún archivo de gobernanza fue modificado. `main.py`, `loader.py`, `validator.py`, `desurvey.py` y `positioning.py` no fueron modificados.
+Los archivos originales de `data/raw/` no fueron modificados; se agregó la carpeta `data/raw/topography/` con `Topopl.csv` sin cambios. Ningún archivo de gobernanza fue modificado. `loader.py`, `validator.py`, `desurvey.py`, `positioning.py` y el compositado no fueron modificados; `main.py` solo recibió el selector de etapa.
 
 ---
 
@@ -300,6 +329,8 @@ Los archivos originales de `data/raw/` no fueron modificados; se agregó la carp
 python -m pytest tests/test_m01_compositing.py -v
 python -m pytest -q
 python -m src.m01.compositing
+python -m unittest discover -s tests -t .
+python main.py --stage m01b
 ```
 
 ### Resultado real
@@ -309,6 +340,9 @@ python -m src.m01.compositing
 - **Tests failed:** 0
 - **Etapa 5 (2026-10-24):** 82 pruebas en total (65 previas + 17 de `block_model`), 0 fallos, ejecutadas con `python -m unittest discover` en sesión de diagnóstico remoto; también `python -m src.m01.block_model` sobre los datos reales.
 - **Etapa 6 (2026-10-24):** 98 pruebas en total (82 + 16 de `domain_assignment`), 0 fallos, con `python -m unittest discover` en sesión de diagnóstico remoto; también `python -m src.m01.domain_assignment` sobre los datos reales.
+- **Etapa 7 (2026-10-24):** 119 pruebas en total (98 + 21 de `block_validation`), 0 fallos, con `python -m unittest discover` en sesión de diagnóstico remoto; también `python -m src.m01.block_validation` sobre los datos reales.
+- **Etapa 8 (2026-10-24):** 128 pruebas en total (119 + 9 de `visualizer`), 0 fallos, con `python -m unittest discover` en sesión de diagnóstico remoto; la página se abrió y se probó en Chromium sin interfaz.
+- **Etapa 9 (2026-10-24):** 133 pruebas en total (128 + 5 de `test_main_m01b`), 0 fallos, con `python -m unittest discover` en sesión de diagnóstico remoto (10.5 s con la prueba de integración); `python main.py` conserva su salida y `python main.py --stage m01b` termina con código 0.
 
 Las 18 pruebas nuevas usan datos sintéticos pequeños, solo en tests, y cubren: dos assays de 1 m que forman un composite de 2 m; ley ponderada por longitud; assay de 2 m conservado; residual terminal; contacto dentro de un assay; ningún composite cruza un contacto; conservación de metros; `from_m < to_m` y longitud positiva; independencia entre sondajes; hueco que corta el tramo; assay con tramo sin litología, solapado o inválido; XYZ en un pozo vertical; composite fuera de cobertura sin XYZ; escritura del CSV.
 
@@ -367,6 +401,18 @@ El código litológico `AIR` aparece en 2 intervalos (CA-C02-007, 1.0–2.0 m; C
 
 `positioning._position_at_depth` es una función privada de M01 que `compositing.py` importa. Si M01 la renombra, el compositado debe actualizarse.
 
+### LIMITATION-06
+
+El método del vecino más cercano con sondajes casi verticales (dip entre -85 y -58 grados) produce en las secciones fronteras de dominio **verticales** a medio camino entre pozos (por ejemplo, el límite DIO/POR en la sección oeste-este iy=12, de 3,060 a 3,330 m). Un contacto geológico real no tiene por qué ser vertical. El modelo no interpola contactos entre pozos.
+
+### LIMITATION-07
+
+Las proporciones por dominio del modelo no son proporciones geológicas (control DOM-05): DIO sobrerrepresentado y POR y BRX subrepresentados frente a los metros compuestados, porque los bloques entre pozos quedan más cerca de la parte superior de cada pozo y el vecino más cercano no extiende lentes. No usar estas proporciones para volúmenes ni tonelajes.
+
+### LIMITATION-08
+
+El visualizador necesita conexión a internet para cargar Three.js desde cdnjs; sin red la página no dibuja. Las pruebas del visualizador comprueban los datos y el HTML generados, no el aspecto en pantalla; ese control se hizo manualmente en un navegador de prueba y la inspección visual del estudiante sigue pendiente.
+
 ### FUTURE-01
 
 Etapas posteriores de M01B (dominios, grid, topografía, asignación a bloques) no están implementadas ni decididas.
@@ -390,6 +436,8 @@ Repetir `python -m pytest` y `python -m src.m01.compositing` en el entorno PyCha
 
 **Comentario:** Se usó Claude (sesión con acceso remoto al repositorio) para el baseline, la auditoría de inputs, el análisis de assay, la implementación de `compositing.py`, la escritura de las pruebas y esta documentación. La elección de la longitud de composite (alternativa A) fue del estudiante; las reglas de contactos, ponderación y residuales provienen de las reglas aprobadas en clase.
 
+**Comentario sobre las etapas 5 a 9 (2026-10-24):** Claude (sesión con acceso remoto al repositorio) propuso las alternativas y la elección de DECISION-02, DECISION-03, DECISION-04 y DECISION-05, implementó `block_model.py`, `domain_assignment.py`, `block_validation.py`, `visualizer.py` y la integración en `main.py`, escribió las pruebas y esta documentación. El estudiante aceptó DECISION-02 y DECISION-03 y redactó la justificación de DECISION-02 a partir de una frase modelo; DECISION-04 y DECISION-05 quedan pendientes de su revisión. Las cifras de las etapas 5 a 8 se contrastaron con cálculos independientes (scipy y pandas) hechos solo para verificación. La interpretación minera de las secciones y del visor 3D es del estudiante y está PENDIENTE.
+
 ---
 
 ## 16. Checklist de cierre
@@ -407,4 +455,9 @@ Repetir `python -m pytest` y `python -m src.m01.compositing` en el entorno PyCha
 - [x] Limitaciones registradas.
 - [x] Registro actualizado.
 
-**Estado: IN_PROGRESS.** El compositado cumple su checklist, pero M01B no se cierra: faltan la verificación en el entorno PyCharm, la topografía y las etapas posteriores. No corresponde `CLOSED`.
+- [ ] Interpretación minera del estudiante de las secciones y del visor 3D.
+- [ ] Justificaciones del estudiante de DECISION-03, -04 y -05.
+- [ ] Pruebas ejecutadas en el entorno PyCharm del estudiante.
+- [ ] Participantes completados.
+
+**Estado: IN_PROGRESS.** El modelo de bloques preliminar está implementado, probado y con controles automáticos, pero M01B no se cierra: faltan las cuatro tareas anteriores. No corresponde `CLOSED`.

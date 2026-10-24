@@ -2,12 +2,27 @@
 
 La lógica minera no debe concentrarse en este archivo. Los módulos se incorporarán
 progresivamente durante el curso conforme exista una necesidad de ingeniería real.
+
+Uso:
+    python main.py                 # etapa m01: carga y validación (por defecto)
+    python main.py --stage m01b    # compositado, grid, topografía, dominios, validación y visor 3D
 """
 
+import argparse
+import sys
 from collections import Counter
+from pathlib import Path
 
+from src.m01.block_model import run_m01b_block_model
+from src.m01.block_validation import FAIL, run_m01b_block_validation
+from src.m01.compositing import run_m01b_compositing
+from src.m01.domain_assignment import run_m01b_domain_assignment
 from src.m01.loader import load_m01_data
 from src.m01.validator import ValidationReport, validate_m01_data
+from src.m01.visualizer import run_m01b_visualizer
+
+STAGES = ("m01", "m01b")
+M01B_PROCESSED_DIR = Path(__file__).resolve().parent / "data" / "processed" / "m01b"
 
 
 def print_validation_report(report: ValidationReport) -> None:
@@ -48,12 +63,81 @@ def print_validation_report(report: ValidationReport) -> None:
         )
 
 
-def main() -> None:
-    """Load and validate the default M01 release."""
+def run_m01b_stage(
+    processed_dir: str | Path = M01B_PROCESSED_DIR,
+    report_path: str | Path | None = None,
+    figure_path: str | Path | None = None,
+) -> str:
+    """Run M01B in order and return the overall block validation status.
+
+    Only orchestrates: composites -> block grid and topography -> domains ->
+    independent validation -> 3D viewer. Each step lives in its own module.
+    """
+    processed = Path(processed_dir)
+    composites_path = processed / "composites.csv"
+    topo_path = processed / "blocks_topo.csv"
+    domains_path = processed / "blocks_domains.csv"
+
+    _, comp = run_m01b_compositing(composites_path)
+    print(
+        f"M01B compositing: {comp['composites']} composites "
+        f"({comp['residual_composites']} residual), "
+        f"meters difference {comp['meters_difference']:.6f} m, "
+        f"{comp['findings']} finding(s)"
+    )
+
+    _, blocks = run_m01b_block_model(output_path=topo_path)
+    counts = blocks["counts"]
+    print(
+        f"M01B block model: {blocks['n_blocks']} blocks "
+        f"(ROCK {counts['ROCK']}, PARTIAL {counts['PARTIAL']}, AIR {counts['AIR']}, "
+        f"OUTSIDE_TOPO_COVERAGE {counts['OUTSIDE_TOPO_COVERAGE']}), "
+        f"{blocks['n_findings']} finding(s)"
+    )
+
+    _, domains = run_m01b_domain_assignment(composites_path, topo_path, domains_path)
+    status = domains["status_counts"]
+    print(
+        f"M01B domains: {domains['n_rock_blocks']} rock blocks "
+        f"(supported {status['ASSIGNED_SUPPORTED']}, "
+        f"extrapolated {status['ASSIGNED_EXTRAPOLATED']}, "
+        f"unknown {status['UNKNOWN_NO_SUPPORT']})"
+    )
+
+    report_kwargs = {} if report_path is None else {"report_path": report_path}
+    validation = run_m01b_block_validation(
+        topo_path, domains_path, composites_path, **report_kwargs
+    )
+    counts = validation.counts
+    print(
+        f"M01B validation: {validation.overall} "
+        f"(PASS {counts['PASS']}, WARNING {counts['WARNING']}, FAIL {counts['FAIL']})"
+    )
+
+    figure_kwargs = {} if figure_path is None else {"output_path": figure_path}
+    run_m01b_visualizer(
+        domains_path=domains_path, composites_path=composites_path, **figure_kwargs
+    )
+    print("M01B viewer written.")
+    return validation.overall
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="PlanMinUPN pipeline")
+    parser.add_argument("--stage", choices=STAGES, default="m01")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the selected stage; return 1 only if the M01B validation has a FAIL."""
+    args = _parse_args(argv or [])
+    if args.stage == "m01b":
+        return 1 if run_m01b_stage() == FAIL else 0
     data = load_m01_data()
     report = validate_m01_data(data)
     print_validation_report(report)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(sys.argv[1:]))
