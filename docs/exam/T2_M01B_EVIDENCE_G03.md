@@ -20,11 +20,11 @@ Esta sesión **no siguió el protocolo de evaluación del examen** (`01_AGENT_EX
 | Commit `e13d595` (2026-10-23) | Baseline, auditoría de inputs y compositado a 2.0 m de Cu para DS01/EXP03 |
 | Commit `b77f84d` (2026-10-24) | Topografía común `Topopl.csv` y su auditoría |
 | Commit `00be54b` (2026-10-24) | Grid 25×25×10 m, estado topográfico y asignación de dominios |
-| Pruebas | `python -m unittest discover -s tests -t .`: 133 pruebas OK en sesión remota (10.5 s). **No ejecutadas por el estudiante en su `.venv` de PyCharm: NOT_RUN en su entorno.** |
+| Pruebas | `python -m unittest discover -s tests -t .`: 133 pruebas OK en sesión remota (10.5 s). **Ejecutadas por el estudiante en su `.venv` de PyCharm (Python 3.14.7) el 2026-10-24 (~13:29, hora de Lima): `Ran 147 tests in 9.267s … OK`** (captura de pantalla aportada por el estudiante; con Plotly 7.1.0 instalado). |
 | Reproducibilidad | `python main.py --stage m01b` regenera `composites.csv`, `blocks_topo.csv` y `blocks_domains.csv` sin diferencias respecto de los commits |
 | Autor Git | Los commits aparecen como `Dinacipriano`; el estudiante no ha confirmado que sea su identidad |
 
-Pendiente: commits de la validación, el visor, `main.py`, las pruebas nuevas y IMP-002 actualizado (ver sección 5).
+Commit `bb7e099` (2026-10-24 09:46): validación, visor, `main.py`, pruebas nuevas, IMP-002 y estos registros (ver sección 5).
 
 ## 2. Checkpoints reales de la interacción
 
@@ -33,13 +33,13 @@ Pendiente: commits de la validación, el visor, `main.py`, las pruebas nuevas y 
 - Pregunta del estudiante (cita): "me comentan que topografía no ha entregado a nadie el archivo el profesor, se puede continuar sin ello?"
 - Después: "El profesor acaba de pasar estos dos archivos, uno es la topografía, podemos avanzar ya con esto?"
 - Acción: se incorporó `data/raw/topography/Topopl.csv` y se auditó (`outputs/tables/IMP002_topography_audit_M01B.md`).
-- Gate: no aplica. Validación computacional: PASS (auditoría). Validación minera: PENDING. CRS: UNKNOWN.
+- Gate: no aplica. Validación computacional: PASS (auditoría). Validación minera: PENDING. CRS: EPSG UNKNOWN, limitación no bloqueante según DECISION-06 del docente.
 
 ### CHECKPOINT 2 — Dominios (DECISION-02)
 - Alternativas: A. un dominio por litología. B. y C. agrupaciones de litologías (ver IMP-002).
 - Elección y alternativas propuestas por: el asistente. Antes el estudiante pidió: "dame un ejemplo de frase de justificación que sería correcto para adaptarlo".
 - Justificación del estudiante (cita, adaptada de una frase modelo del asistente): "Elijo A (un dominio por litología) porque el Cu y la densidad cambian mucho entre los distintos tipos de litología: la litologia POR tiene unas 10 veces el % de Cu de DIO y BRX y casi el doble de POR, así que juntarlas en B o C mezclaría poblaciones distintas. Además A se puede reagrupar después y B o C no."
-- Nota del asistente (verificada con `composites.csv`, Cu % medio ponderado por longitud de composite): BRX 1.043 (258 composites), POR 0.515 (1,574), REG 0.088 (108), DIO 0.050 (1,690). La razón POR/DIO es ≈ 10, como afirma el estudiante, pero BRX **no** tiene menos Cu que POR: tiene cerca del doble. La frase debe corregirse (p. ej., POR ≈ 10 veces DIO y ≈ 6 veces REG, y BRX ≈ 2 veces POR). La afirmación sobre la densidad no se verificó: no se evaluó ningún dato de densidad en esta sesión. La conclusión (A separa poblaciones distintas) se mantiene.
+- Nota del asistente (verificada con `composites.csv`, Cu % medio ponderado por longitud de composite): BRX 1.043 (258 composites), POR 0.515 (1,574), REG 0.088 (108), DIO 0.050 (1,690). La razón POR/DIO es ≈ 10, como afirma el estudiante, pero BRX **no** tiene menos Cu que POR: tiene cerca del doble. La frase debe corregirse (p. ej., POR ≈ 10 veces DIO y ≈ 6 veces REG, y BRX ≈ 2 veces POR). Densidad (data/raw/density.csv unida a lithology.csv por punto medio): DIO 2.70 t/m³ (135 muestras), POR 2.65 (127), BRX 2.60 (22), REG 2.31 (6). La densidad casi no distingue DIO, POR y BRX (<4 %); solo REG es claramente menor. El contraste fuerte que sustenta la opción A es el Cu.
 - Evaluación conversacional: PARCIAL. Ayuda máxima: H3. Gate: PENDING.
 
 ### CHECKPOINT 3 — Significado de "aire" y del código `AIR`
@@ -65,8 +65,14 @@ Pendiente: commits de la validación, el visor, `main.py`, las pruebas nuevas y 
 
 ### CHECKPOINT 7 — Validación y visor
 - Instrucciones del estudiante (citas): "si prosigue"; "sigue con el visualizador, luego subimos esta etapa, las interpretaciones para el final tambien".
-- Archivos: `src/m01/block_validation.py`, `src/m01/visualizer.py`, `outputs/tables/IMP002_block_validation_M01B.md`, `outputs/figures/IMP002_block_model_3d_M01B.html`.
+- Archivos: `src/m01/block_validation.py`, `src/m01/block_viewer.py` (creado como `visualizer.py`; renombrado en el checkpoint 8), `outputs/tables/IMP002_block_validation_M01B.md`, `outputs/figures/IMP002_block_model_3d_M01B.html`.
 - Validación computacional: PASS (sin FAIL). Validación minera: **PENDING** (interpretación del estudiante).
+
+### CHECKPOINT 8 — Visualización M01 pedida por el docente
+- Evidencia: el docente entregó (2026-10-24) un documento con prompts, entre ellos «Implementa visualizer.py para generar una visualización 3D interactiva en formato HTML» con Plotly en `outputs/figures/m01_exploration_3d.html`. El estudiante indicó (cita): "si en uno de los comandos que te pase el profesor pide que se implemente el visor plotly, ... entonces tocaría hacerlo así".
+- Acción: el visor de bloques se renombró a `block_viewer.py` y se creó `src/m01/visualizer.py` (Plotly) más `main.py --stage m01viz`; B04 deja de estar MISSING. Plotly se agregó a `requirements.txt` (dependencia nueva).
+- Pruebas: 147 OK en sesión remota (6 omitidas si Plotly no está instalado). El HTML se abrió en Chromium sin interfaz: 9 capas, sin errores de consola.
+- Gate formal: no se ejecutó; instrucción directa del estudiante. Ayuda máxima: H3. Validación minera: PENDING (revisión visual del estudiante).
 
 ## 3. Resultados verificados del modelo (sesión remota)
 
@@ -83,25 +89,24 @@ Los WARNING no son errores del código: señalan limitaciones reales del modelo 
 
 ## 4. Archivos creados o modificados en la sesión
 
-Nuevos: `src/m01/block_model.py`, `domain_assignment.py`, `block_validation.py`, `visualizer.py`; sus pruebas `tests/test_m01_*.py` y `tests/test_main_m01b.py`; `data/processed/m01b/blocks_topo.csv`, `blocks_domains.csv`; el informe y el HTML de salida; `data/raw/topography/Topopl.csv` (entregado por el docente, sin modificar); este registro y el plan.
+Nuevos: `src/m01/block_model.py`, `domain_assignment.py`, `block_validation.py`, `block_viewer.py`; sus pruebas `tests/test_m01_*.py` y `tests/test_main_m01b.py`; `data/processed/m01b/blocks_topo.csv`, `blocks_domains.csv`; el informe y el HTML de salida; `data/raw/topography/Topopl.csv` (entregado por el docente, sin modificar); este registro y el plan.
 Modificados: `main.py` (selector `--stage`), `docs/implementation/IMP-002_m01b_block_model_preparation.md`.
 No modificados: `loader.py`, `validator.py`, `desurvey.py`, `positioning.py`, compositado y `data/raw/`.
 
 ## 5. Estado Git (verificado en la sesión)
 
-- Último commit en `main`: `00be54b`.
-- **Sin versionar al momento de escribir:** `src/m01/block_validation.py`, `src/m01/visualizer.py`, las tres pruebas nuevas, el informe de validación, el HTML, `main.py` e IMP-002 modificados, y estos dos documentos.
+- Último commit en `main`: `bb7e099`, sincronizado con `origin/main` (`git status -sb`). Esta nota y la de CRS/densidad se agregaron después y requieren un commit nuevo.
 - El resto de archivos con ` M` en `git status` son diferencias de fin de línea (CRLF/LF), sin cambios de contenido.
-- Los commits y el push los realiza el estudiante en PyCharm; no se declaran como hechos hasta que existan.
+- Los commits y el push los realiza el estudiante en PyCharm.
 
 ## 6. Pendientes del estudiante (no completados por el asistente)
 
 1. Justificaciones propias de DECISION-03, DECISION-04 y DECISION-05.
 2. Interpretación minera de las secciones del informe de validación y del visor 3D (¿qué rasgo no puede ser geología real y por qué?).
 3. Respuesta a la pregunta final del examen: limitación dominante entre A (dominios), B (grid), C (asignación/extrapolación) y D (topografía/parciales), con evidencia propia.
-4. Ejecutar `python -m unittest discover -s tests -t .` en su `.venv`.
+4. ~~Ejecutar las pruebas en su `.venv`~~: HECHO (147 OK). Falta repetir el comando y anotar el hash final tras su commit.
 5. Confirmar identidad de autor Git y completar participantes en IMP-002.
-6. Consultar al docente: CRS de la topografía, significado del código `AIR` y si estimación/densidad/tonelaje son requeridos.
+6. Consultar al docente: significado del código `AIR` y si estimación/densidad/tonelaje son requeridos. (El CRS quedó resuelto como limitación no bloqueante por la DECISION-06 del docente, recibida el 2026-10-24; que aplique a la topografía de M01B es inferencia del grupo.)
 
 ## 7. Estado del producto técnico
 

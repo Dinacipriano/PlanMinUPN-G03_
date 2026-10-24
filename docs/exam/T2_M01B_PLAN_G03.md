@@ -16,7 +16,7 @@
 | 3 | Topografía | ¿Qué bloques son aire, roca o parciales? | `Topopl.csv` (puntos de curvas de nivel, m) | `topo_state` por bloque | `block_model.py` (`TopographySurface`) |
 | 4 | Asignación | ¿Qué dominio tiene cada bloque de roca y con qué soporte? | bloques ROCK + composites con XYZ | `domain_id`, `assign_status`, distancia, `mixed_flag` | `domain_assignment.py` |
 | 5 | Validación | ¿Cumple el modelo controles verificables? | `blocks_topo.csv`, `blocks_domains.csv`, composites | informe con 21 controles | `src/m01/block_validation.py` |
-| 6 | Visualizador | ¿Se puede inspeccionar en 3D con la información de control? | CSV + collares + composites + superficie | HTML autocontenido | `src/m01/visualizer.py` |
+| 6 | Visualizador | ¿Se puede inspeccionar en 3D con la información de control? | CSV + collares + composites + superficie | HTML autocontenido | `src/m01/block_viewer.py` (visor de bloques) y `src/m01/visualizer.py` (visor Plotly de M01) |
 | 7 | Orquestación | ¿Se reproduce todo con un comando? | todo lo anterior | `python main.py --stage m01b` | `main.py` |
 
 ## 2. Decisiones críticas (quién decidió)
@@ -38,7 +38,7 @@ El detalle, las alternativas y las limitaciones están en `docs/implementation/I
 ## 4. Riesgos y limitaciones conocidas
 
 - La topografía se interpola desde puntos de curvas de nivel (99.1 % de cotas enteras) con IDW por 8 sectores; no hay TIN oficial.
-- CRS de la topografía: **UNKNOWN** (se asume el de los collares sin verificación documental).
+- CRS de la topografía: EPSG **UNKNOWN**, aceptado como limitación no bloqueante por la «DECISION-06» del docente (no se puede afirmar ubicación global ni transformar a otro CRS); el README de `data/raw` indica sistema cartesiano local en metros. La auditoría muestra 32/32 collares dentro de la envolvente y Δz collar–superficie de −1.26 a +1.76 m (media 0.03 m), coherente con un mismo sistema, pero no es confirmación documental.
 - 8,897 bloques (48 % de la roca) son extrapolados entre 50 y 100 m; 2,600 sin soporte; 2,362 con dominios mezclados dentro de 50 m.
 - 1,532 bloques parciales (8 % de los 18,497 bloques de roca y parciales) no se subdividen.
 - El código litológico `AIR` (3 m en dos intervalos) no tiene significado documentado.

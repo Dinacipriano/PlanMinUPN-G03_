@@ -6,6 +6,7 @@ progresivamente durante el curso conforme exista una necesidad de ingeniería re
 Uso:
     python main.py                 # etapa m01: carga y validación (por defecto)
     python main.py --stage m01b    # compositado, grid, topografía, dominios, validación y visor 3D
+    python main.py --stage m01viz  # desurvey + positioning + visualización 3D Plotly de M01 (requiere plotly)
 """
 
 import argparse
@@ -13,15 +14,29 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from src.m01.block_model import run_m01b_block_model
+from src.m01.block_model import (
+    DEFAULT_TOPOGRAPHY_PATH,
+    TopographySurface,
+    read_topography,
+    run_m01b_block_model,
+)
+from src.m01.block_viewer import run_m01b_visualizer
 from src.m01.block_validation import FAIL, run_m01b_block_validation
 from src.m01.compositing import run_m01b_compositing
+from src.m01.desurvey import desurvey_m01_data
 from src.m01.domain_assignment import run_m01b_domain_assignment
 from src.m01.loader import load_m01_data
+from src.m01.positioning import position_m01_intervals
 from src.m01.validator import ValidationReport, validate_m01_data
-from src.m01.visualizer import run_m01b_visualizer
+from src.m01.visualizer import (
+    DEFAULT_OUTPUT_PATH as M01_FIGURE_PATH,
+    build_exploration_figure,
+    sample_topography,
+    summarize_figure_inputs,
+    write_exploration_html,
+)
 
-STAGES = ("m01", "m01b")
+STAGES = ("m01", "m01b", "m01viz")
 M01B_PROCESSED_DIR = Path(__file__).resolve().parent / "data" / "processed" / "m01b"
 
 
@@ -122,6 +137,38 @@ def run_m01b_stage(
     return validation.overall
 
 
+def run_m01_visualization(output_path: str | Path = M01_FIGURE_PATH) -> Path:
+    """Run M01 once (load, validate, desurvey, positioning) and draw the results.
+
+    Only orchestrates: the visualizer draws what desurvey and positioning
+    already produced. The topography is optional and skipped if unavailable.
+    """
+    data = load_m01_data()
+    report = validate_m01_data(data)
+    desurvey = desurvey_m01_data(data, report)
+    positioning = position_m01_intervals(data, desurvey.trajectories)
+
+    topography = None
+    if Path(DEFAULT_TOPOGRAPHY_PATH).is_file():
+        points, _ = read_topography()
+        xs = [float(c["x"]) for c in data.collar.records]
+        ys = [float(c["y"]) for c in data.collar.records]
+        pad = 150.0
+        topography = sample_topography(
+            TopographySurface(points),
+            (min(xs) - pad, max(xs) + pad),
+            (min(ys) - pad, max(ys) + pad),
+        )
+    figure = build_exploration_figure(data, desurvey, positioning, topography)
+    written = write_exploration_html(figure, output_path)
+    counts = summarize_figure_inputs(data, desurvey, positioning)
+    print(
+        f"M01 visualization: {counts['collars']} collars, {counts['trajectories']} trajectories, "
+        f"intervals {counts['intervals']}, topography {'yes' if topography else 'no'} -> {written}"
+    )
+    return written
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PlanMinUPN pipeline")
     parser.add_argument("--stage", choices=STAGES, default="m01")
@@ -133,6 +180,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv or [])
     if args.stage == "m01b":
         return 1 if run_m01b_stage() == FAIL else 0
+    if args.stage == "m01viz":
+        run_m01_visualization()
+        return 0
     data = load_m01_data()
     report = validate_m01_data(data)
     print_validation_report(report)

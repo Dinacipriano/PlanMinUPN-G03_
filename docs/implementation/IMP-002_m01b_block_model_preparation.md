@@ -164,7 +164,7 @@ Reutiliza `loader.load_m01_data`, `validator.validate_m01_data`, `desurvey.desur
 ### Etapa 8 — 2026-10-24
 
 - **Objetivo:** Visualización 3D que permita auditar el modelo y no solo mostrarlo (paso 12, P6).
-- **Trabajo realizado:** Se creó `src/m01/visualizer.py` y `tests/test_m01_visualizer.py` (9 pruebas sintéticas etiquetadas). Genera `outputs/figures/IMP002_block_model_3d_M01B.html` (793 KB, datos embebidos; carga Three.js r128 desde cdnjs). Capas: caja del grid, topografía evaluada (malla cada 12.5 m), sondajes y collares, composites coloreados por litología y bloques de roca. Los bloques AIR no se dibujan; los UNKNOWN, extrapolados y PARTIAL se mantienen visibles. Filtros por dominio, soporte y estado topográfico, recorte por índice X/Y/Z, opacidad, cuatro modos de color (dominio, soporte, topografía, contacto cercano) y clic sobre un bloque para ver sus datos.
+- **Trabajo realizado:** Se creó el visor de bloques (primero con el nombre `visualizer.py`; en la etapa 10 se renombró a `src/m01/block_viewer.py`, con `tests/test_m01_block_viewer.py`, 9 pruebas sintéticas etiquetadas). Genera `outputs/figures/IMP002_block_model_3d_M01B.html` (793 KB, datos embebidos; carga Three.js r128 desde cdnjs). Capas: caja del grid, topografía evaluada (malla cada 12.5 m), sondajes y collares, composites coloreados por litología y bloques de roca. Los bloques AIR no se dibujan; los UNKNOWN, extrapolados y PARTIAL se mantienen visibles. Filtros por dominio, soporte y estado topográfico, recorte por índice X/Y/Z, opacidad, cuatro modos de color (dominio, soporte, topografía, contacto cercano) y clic sobre un bloque para ver sus datos.
 - **Resultado:** 18,497 bloques de roca dibujados de 29,952 (11,455 AIR omitidos), 32 sondajes y 3,632 composites. Comprobado abriendo la página en Chromium sin interfaz: sin errores de consola, los filtros cambian el recuento (solo soportados: 7,000 bloques) y el clic devuelve los datos del bloque. La inspección visual del modelo por el estudiante sigue PENDIENTE.
 - **Pendiente:** Interpretación minera del estudiante; cierre de IMP-002.
 
@@ -173,7 +173,17 @@ Reutiliza `loader.load_m01_data`, `validator.validate_m01_data`, `desurvey.desur
 - **Objetivo:** Integrar M01B en el punto de entrada sin concentrar lógica en él (paso 13).
 - **Trabajo realizado:** `main.py` ahora acepta `--stage m01` (por defecto, comportamiento y salida sin cambios) y `--stage m01b`, que solo orquesta en orden: compositado, grid y topografía, dominios, validación independiente y visor 3D. Devuelve código de salida 1 solo si la validación de bloques tiene un FAIL. Se agregó `tests/test_main_m01b.py` (5 pruebas; una de integración sobre los datos reales que escribe solo en una carpeta temporal). `run_m01b_visualizer` recibió parámetros de rutas de entrada. Los módulos independientes se probaron antes de integrarlos.
 - **Resultado:** `python main.py --stage m01b`: 3,632 composites (diferencia de metros 0.000000), 29,952 bloques, 18,497 de roca, validación WARNING (15 PASS, 6 WARNING, 0 FAIL), código de salida 0. Los CSV regenerados no difieren de los ya guardados en el repositorio (reproducible).
-- **Pendiente:** Interpretación minera del estudiante; justificaciones de DECISION-03 a 05; participantes; ejecutar las pruebas en el entorno PyCharm.
+- **Pendiente:** Interpretación minera del estudiante; justificaciones de DECISION-03 a 05; participantes. (Las pruebas se ejecutaron después en el entorno del estudiante; ver Etapa 10.)
+
+### Etapa 10 — 2026-10-24
+
+- **Objetivo:** Implementar la visualización 3D interactiva de M01 que pidió el docente (`visualizer.py`, Plotly, `outputs/figures/m01_exploration_3d.html`); cierra el faltante B04 de la ficha del estado base.
+- **Decisión de nombre:** el nombre `src/m01/visualizer.py` ya lo ocupaba el visor de bloques de M01B (Three.js). Como IMP-001 reservaba `visualizer.py` para la visualización de M01 (trayectorias y datos posicionados), el visor de bloques se renombró con `git mv` a `src/m01/block_viewer.py` (y su prueba a `tests/test_m01_block_viewer.py`) y el nombre pedido por el docente quedó para el visor de M01.
+- **Trabajo realizado:** `src/m01/visualizer.py` dibuja, con Plotly, la topografía (superficie cada 25 m, solo donde hay cobertura), los collares, las trayectorias de sondaje y los intervalos posicionados: litología (una capa por código) y assay de Cu (capa oculta al inicio, activable en la leyenda). No recalcula desurvey ni positioning: recibe `DesurveyResult` y `PositioningResult`. Plotly se importa solo al dibujar, con un mensaje claro si falta. `main.py --stage m01viz` ejecuta una vez carga, validación, desurvey y positioning y llama al visor; la etapa `m01` por defecto no cambia. Plotly se agregó a `requirements.txt`: es una dependencia nueva, pedida por el docente.
+- **Pruebas:** `tests/test_m01_visualizer.py` (10) y `tests/test_main_m01viz.py` (4), con fixtures sintéticos etiquetados; las que requieren Plotly se omiten (skip) si no está instalado.
+- **Resultado:** `python main.py --stage m01viz` generó `outputs/figures/m01_exploration_3d.html` (6.2 MB, con Plotly embebido): 32 collares, 32 trayectorias, intervalos posicionados (assay 3,619, density 290, lithology 95) y topografía. Se abrió en Chromium sin interfaz: 9 capas, sin errores de consola. Se dibujan lithology y assay; density no se dibuja (el docente pidió inicialmente litología o assay). Verificado con Plotly 7.1.0 en la sesión remota.
+- **Ejecución en el entorno del estudiante (2026-10-24, ~13:20–13:30 hora de Lima, reportada con capturas):** Plotly 7.1.0 instalado en su `.venv` (Python 3.14.7) con `pip install plotly`; `python main.py --stage m01viz` imprimió 32 collares, 32 trayectorias, intervalos {assay 3619, density 290, lithology 95} y topografía, y escribió el HTML; `python -m unittest discover -s tests -t .` → «Ran 147 tests in 9.267s … OK». El estudiante abrió el HTML en el navegador y confirmó que se ve.
+- **Pendiente:** interpretación minera del visor por el estudiante; confirmar con el docente que el nombre y la ubicación son los esperados.
 
 ---
 
@@ -264,7 +274,7 @@ Reutiliza `loader.load_m01_data`, `validator.validate_m01_data`, `desurvey.desur
 
 **Evidencia (verificación independiente con TIN lineal de scipy, solo para contrastar):** diferencia de cota en 624 centros de columna: media 0.02 m, desv. 0.31 m, máx. |d| 1.43 m. Estados coinciden en el 99.9 % de una muestra de 3,000 bloques (2 discrepancias, ambas ROCK/PARTIAL en el límite). Los 3,632 composites caen dentro del grid: 3,440 en bloques ROCK, 192 en PARTIAL, 0 en AIR. Resultado: ROCK 16,965; PARTIAL 1,532; AIR 11,455; OUTSIDE_TOPO_COVERAGE 0.
 
-**Limitaciones:** el volumen de un bloque PARTIAL no es el volumen nominal de roca (no se calcula la fracción). La superficie proviene de curvas de nivel y su CRS no consta (UNKNOWN). La coincidencia collar-superficie es de ±2 m. El estado AIR/ROCK no implica geología interpretada.
+**Limitaciones:** el volumen de un bloque PARTIAL no es el volumen nominal de roca (no se calcula la fracción). La superficie proviene de curvas de nivel y su EPSG no consta; el CRS se trata según la decisión del docente (DECISION-06 del docente, ver LIMITATION-09). La coincidencia collar-superficie es de ±2 m. El estado AIR/ROCK no implica geología interpretada.
 
 ### DECISION-05
 
@@ -308,8 +318,13 @@ data/processed/m01b/blocks_domains.csv                (nuevo, derivado)
 src/m01/block_validation.py                           (nuevo)
 tests/test_m01_block_validation.py                    (nuevo)
 outputs/tables/IMP002_block_validation_M01B.md        (nuevo, derivado)
-src/m01/visualizer.py                                 (nuevo)
+src/m01/block_viewer.py                               (nuevo; creado como visualizer.py y renombrado en la etapa 10)
+tests/test_m01_block_viewer.py                        (nuevo)
+src/m01/visualizer.py                                 (nuevo, etapa 10: visor Plotly de M01)
 tests/test_m01_visualizer.py                          (nuevo)
+tests/test_main_m01viz.py                             (nuevo)
+outputs/figures/m01_exploration_3d.html               (nuevo, derivado)
+requirements.txt                                      (modificado: plotly)
 outputs/figures/IMP002_block_model_3d_M01B.html       (nuevo, derivado)
 main.py                                               (modificado: etapa --stage m01b)
 tests/test_main_m01b.py                               (nuevo)
@@ -331,6 +346,7 @@ python -m pytest -q
 python -m src.m01.compositing
 python -m unittest discover -s tests -t .
 python main.py --stage m01b
+python main.py --stage m01viz
 ```
 
 ### Resultado real
@@ -343,6 +359,7 @@ python main.py --stage m01b
 - **Etapa 7 (2026-10-24):** 119 pruebas en total (98 + 21 de `block_validation`), 0 fallos, con `python -m unittest discover` en sesión de diagnóstico remoto; también `python -m src.m01.block_validation` sobre los datos reales.
 - **Etapa 8 (2026-10-24):** 128 pruebas en total (119 + 9 de `visualizer`), 0 fallos, con `python -m unittest discover` en sesión de diagnóstico remoto; la página se abrió y se probó en Chromium sin interfaz.
 - **Etapa 9 (2026-10-24):** 133 pruebas en total (128 + 5 de `test_main_m01b`), 0 fallos, con `python -m unittest discover` en sesión de diagnóstico remoto (10.5 s con la prueba de integración); `python main.py` conserva su salida y `python main.py --stage m01b` termina con código 0.
+- **Etapa 10 (2026-10-24):** 147 pruebas en total (133 + 14: 10 de `visualizer` y 4 de `test_main_m01viz`), 0 fallos, con `python -m unittest discover` en sesión de diagnóstico remoto. Sin Plotly instalado: 147 pruebas, 6 omitidas, 0 fallos, y `python main.py --stage m01viz` termina con un error claro que indica `pip install plotly`.
 
 Las 18 pruebas nuevas usan datos sintéticos pequeños, solo en tests, y cubren: dos assays de 1 m que forman un composite de 2 m; ley ponderada por longitud; assay de 2 m conservado; residual terminal; contacto dentro de un assay; ningún composite cruza un contacto; conservación de metros; `from_m < to_m` y longitud positiva; independencia entre sondajes; hueco que corta el tramo; assay con tramo sin litología, solapado o inválido; XYZ en un pozo vertical; composite fuera de cobertura sin XYZ; escritura del CSV.
 
@@ -413,13 +430,17 @@ Las proporciones por dominio del modelo no son proporciones geológicas (control
 
 El visualizador necesita conexión a internet para cargar Three.js desde cdnjs; sin red la página no dibuja. Las pruebas del visualizador comprueban los datos y el HTML generados, no el aspecto en pantalla; ese control se hizo manualmente en un navegador de prueba y la inspección visual del estudiante sigue pendiente.
 
+### LIMITATION-09
+
+**Tratamiento de CRS/EPSG (decisión del docente, recibida el 2026-10-24).** El docente registró «DECISION-06 — Tratamiento de CRS/EPSG»: la ausencia de CRS/EPSG formal **no bloquea** M01; el trabajo opera en el sistema cartesiano local del dataset y no requiere transformaciones ni georreferenciación; estado `ACCEPTED — NON-BLOCKING LIMITATION`. Restricción: no se puede afirmar ubicación global ni transformar de manera defendible a otro CRS. En este repositorio, `DECISION-06` de IMP-001 ya identifica otra decisión local (protección de archivos fuente); por eso la decisión del docente se cita aquí como «DECISION-06 del docente». Se aplica a M01B por extensión (la topografía y los collares comparten el sistema local: 32/32 collares dentro de la envolvente, Δz de -1.26 a +1.76 m); esa extensión es una inferencia del grupo, no una indicación expresa del docente.
+
 ### FUTURE-01
 
-Etapas posteriores de M01B (dominios, grid, topografía, asignación a bloques) no están implementadas ni decididas.
+Estimación de leyes, densidad y tonelaje (pasos 9 y 10 del PDF del docente) no están implementadas; el escenario las declara fuera de alcance y el docente debe confirmarlo. Los dominios, el grid, la topografía y la asignación a bloques ya están implementados (etapas 5 a 9).
 
 ### FUTURE-02
 
-Repetir `python -m pytest` y `python -m src.m01.compositing` en el entorno PyCharm del estudiante para dejar la evidencia en el entorno real.
+Hecho parcialmente: la suite completa se ejecutó con `unittest` en el entorno del estudiante (147 OK, 2026-10-24). Falta, si se desea, repetir `python -m src.m01.compositing` allí.
 
 ---
 
@@ -457,7 +478,7 @@ Repetir `python -m pytest` y `python -m src.m01.compositing` en el entorno PyCha
 
 - [ ] Interpretación minera del estudiante de las secciones y del visor 3D.
 - [ ] Justificaciones del estudiante de DECISION-03, -04 y -05.
-- [ ] Pruebas ejecutadas en el entorno PyCharm del estudiante.
+- [x] Pruebas ejecutadas en el entorno PyCharm del estudiante (147 OK, 2026-10-24).
 - [ ] Participantes completados.
 
-**Estado: IN_PROGRESS.** El modelo de bloques preliminar está implementado, probado y con controles automáticos, pero M01B no se cierra: faltan las cuatro tareas anteriores. No corresponde `CLOSED`.
+**Estado: IN_PROGRESS.** El modelo de bloques preliminar está implementado, probado y con controles automáticos, pero M01B no se cierra: faltan las tareas sin marcar arriba. No corresponde `CLOSED`.
